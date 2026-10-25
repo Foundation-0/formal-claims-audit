@@ -1,0 +1,23 @@
+{
+  "id": "example-lab-theorem-1",
+  "source_repo": "https://github.com/example/lab-proofs",
+  "source_commit": "0123456789abcdef0123456789abcdef01234567",
+  "claim": "For every natural number n, the sum of the first n odd numbers is n squared.",
+  "claim_link": "https://example.org/paper.pdf#page=3",
+  "lab_statement": {
+    "file": "Proofs/OddSum.lean",
+    "name": "odd_sum",
+    "lean": "theorem odd_sum (n : ℕ) : ∑ i ∈ Finset.range n, (2 * i + 1) = n ^ 2"
+  },
+  "independent_statement": {
+    "lean": "theorem odd_sum' : ∀ n : ℕ, ∑ i ∈ Finset.range n, (2 * i + 1) = n ^ 2",
+    "source": "written for this audit",
+    "author": "example-user"
+  },
+  "tool": {"name": "comparator", "version": "<version>", "lean_version": "<version>"},
+  "command": "<the exact command>",
+  "output_summary": "<the lines of output that matter>",
+  "axioms": ["propext", "Classical.choice", "Quot.sound"],
+  "verdict": "faithful",
+  "reviewer": null
+}

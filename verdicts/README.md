@@ -20,11 +20,20 @@ knows the field reviews every verdict other than `faithful` before it is reporte
 
 All fields are required. Use `null` for a value that does not exist yet, such as `reviewer` before the review.
 
+The checker requires `id`, `source_commit` and `verdict` to have the concrete values described below.
+Other text values may be strings or `null`. Each statement or tool may be `null` when unavailable;
+when it is an object, all its listed fields must be present, with string or `null` values.
+`axioms` is an array of strings (possibly empty), or `null` when not yet recorded. Additional fields are
+allowed. A missing field is not the same as an explicit `null`.
+Files must be UTF-8 JSON with no duplicate keys or non-JSON constants such as `NaN`.
+Run `python3 scripts/check_verdicts.py` from the repository root to check this format; it does not
+establish that a verdict is correct or ready to publish.
+
 | field | what it holds |
 |---|---|
 | `id` | a short name, the same as the file name without `.json` |
 | `source_repo` | the URL of the repository that holds the lab's Lean files |
-| `source_commit` | the full 40-character commit hash that was audited |
+| `source_commit` | the full 40-character hexadecimal commit hash that was audited |
 | `claim` | the claim in words, quoted from the paper |
 | `claim_link` | a link to the paper, at the page or section of the claim |
 | `lab_statement` | the lab's formal statement: `file` (path in the source repository), `name` (the theorem's name) and `lean` (its text, copied exactly) |

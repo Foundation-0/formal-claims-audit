@@ -98,6 +98,26 @@ For each claim:
 A finding says "the formal statement differs from the paper's claim", never "the proof is wrong". Like every result
 from this repository, a verdict starts with the status "claimed".
 
+## Check it yourself
+
+Python 3.10 or newer and its standard library are sufficient. From the repository root, run:
+
+```sh
+python3 scripts/check_verdicts.py
+python3 -m unittest discover -s tests -v
+```
+
+The checker reads every `verdicts/*.json` and reports errors by file and field. It checks required fields,
+nested objects, value types, filename-matching IDs, full commit hashes and the five allowed verdicts.
+It rejects malformed JSON and duplicate keys, and exits with status 1 if any file fails.
+To check a different directory, use `python3 scripts/check_verdicts.py path/to/verdicts`.
+With no argument, it always checks this repository's `verdicts/`, regardless of the working directory.
+An empty verdict directory passes with an explicit count of zero; the test fixtures are fictional examples,
+not research results. GitHub Actions runs both commands on every push and pull request.
+
+These are structural checks only. They do not run Lean, verify sources or links, compare mathematical
+statements, or establish that a person reviewed a verdict. A passing check does not change any result's status.
+
 ## How to contribute
 
 The lead is to be named, and a person signs for every result.
