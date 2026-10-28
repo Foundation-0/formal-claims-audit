@@ -32,7 +32,9 @@ yourself. This page adds what is specific to formal-claims-audit.
 
 - Every link in the files you changed resolves.
 - Every verdict file follows the format in [verdicts/README.md](verdicts/README.md).
-- Once the verdict checker exists, it passes on every file in [verdicts/](verdicts/).
+- Run `python3 scripts/check_verdicts.py` on every file in [verdicts/](verdicts/).
+- Run `python3 -m unittest discover -s tests -v` for valid and invalid verdict examples.
+- These checks validate file structure, not proof correctness or human review.
 
 ## What needs a person
 

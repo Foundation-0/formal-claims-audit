@@ -1,0 +1,27 @@
+# A green run checks JSON structure and validator regressions, not proof
+# correctness, statement fidelity, provenance, or human review.
+name: Check verdict files
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Check verdict files
+        run: python3 scripts/check_verdicts.py
+      - name: Test valid and invalid verdicts
+        run: python3 -m unittest discover -s tests -v
