@@ -1,0 +1,120 @@
+{
+  "source_commit": "7ef5c0cc5ca4b0e072b7a050fca09ab24bc6fa3a",
+  "toolchain": "leanprover/lean4:v4.34.1",
+  "selection": "catalogue text mentions Erdos; incomplete problem-number census",
+  "records": [
+    {
+      "catalog_number": 12,
+      "title": "Independent largest prime factors of consecutive integers.",
+      "scope_pages": [
+        "lean/docs/012.md"
+      ],
+      "build": "not-run",
+      "axioms": null
+    },
+    {
+      "catalog_number": 24,
+      "title": "An asymptotic formula for the number of totients.",
+      "scope_pages": [
+        "lean/docs/024.md"
+      ],
+      "build": "not-run",
+      "axioms": null
+    },
+    {
+      "catalog_number": 25,
+      "title": "Short Egyptian fractions.",
+      "scope_pages": [
+        "lean/docs/025.md"
+      ],
+      "build": "not-run",
+      "axioms": null
+    },
+    {
+      "catalog_number": 26,
+      "title": "Positive lower density of large prime gaps.",
+      "scope_pages": [
+        "lean/docs/026.md"
+      ],
+      "build": "not-run",
+      "axioms": null
+    },
+    {
+      "catalog_number": 84,
+      "title": "The geometric case of the Erd\u0151s similarity conjecture.",
+      "scope_pages": [
+        "lean/docs/084.md"
+      ],
+      "build": "not-run",
+      "axioms": null
+    },
+    {
+      "catalog_number": 159,
+      "title": "Erd\u0151s\u2019s reciprocal-sum conjecture and quasipolynomial Szemer\u00e9di bounds.",
+      "scope_pages": [
+        "lean/docs/159.md"
+      ],
+      "build": "not-run",
+      "axioms": null
+    },
+    {
+      "catalog_number": 160,
+      "title": "Superexponential van der Waerden numbers.",
+      "scope_pages": [
+        "lean/docs/160.md"
+      ],
+      "build": "not-run",
+      "axioms": null
+    },
+    {
+      "catalog_number": 166,
+      "title": "The higher-dimensional Erd\u0151s distinct-distances conjecture.",
+      "scope_pages": [],
+      "build": "not-run",
+      "axioms": null
+    },
+    {
+      "catalog_number": 167,
+      "title": "Planar distinct distances and unit-distance bounds.",
+      "scope_pages": [
+        "lean/docs/167.md"
+      ],
+      "build": "not-run",
+      "axioms": null
+    },
+    {
+      "catalog_number": 171,
+      "title": "The hypercube Ramsey conjecture.",
+      "scope_pages": [],
+      "build": "not-run",
+      "axioms": null
+    },
+    {
+      "catalog_number": 181,
+      "title": "The Erd\u0151s\u2013Gallai cycle-decomposition conjecture.",
+      "scope_pages": [
+        "lean/docs/181.md"
+      ],
+      "build": "not-run",
+      "axioms": null
+    },
+    {
+      "catalog_number": 184,
+      "title": "Correspondence coloring with a fixed forbidden subgraph.",
+      "scope_pages": [
+        "lean/docs/184.md"
+      ],
+      "build": "not-run",
+      "axioms": null
+    },
+    {
+      "catalog_number": 189,
+      "title": "Cycle\u2013clique Ramsey numbers.",
+      "scope_pages": [
+        "lean/docs/189.md"
+      ],
+      "build": "not-run",
+      "axioms": null
+    }
+  ]
+}
