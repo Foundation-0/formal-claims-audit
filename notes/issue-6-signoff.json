@@ -1,0 +1,16 @@
+{
+  "issue": 6,
+  "status": "awaiting-human-review",
+  "recipient_scope": "A qualified reviewer selected by the project lead",
+  "required_evidence": "verdicts/README.md; a specific verdict file; the paper passage; both statements; pinned commits and replay logs.",
+  "signoffs": [
+    {
+      "reviewer_github": null,
+      "field": null,
+      "verdict_id": null,
+      "agreement_date": null,
+      "decision": null,
+      "limitations": null
+    }
+  ]
+}
