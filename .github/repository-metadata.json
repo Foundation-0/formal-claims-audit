@@ -1,0 +1,11 @@
+{
+  "description": "Checks whether the formal (Lean) statements behind AI-claimed results say what their papers claim.",
+  "topics": [
+    "foundation0",
+    "ai-for-science",
+    "formal-verification",
+    "lean4",
+    "mathematics",
+    "reproducibility"
+  ]
+}
