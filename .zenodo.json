@@ -1,0 +1,27 @@
+{
+    "creators": [
+        {
+            "name": "Arifuddin, Ahraz"
+        }
+    ],
+    "title": "formal-claims-audit",
+    "description": "<p>This repository checks, in public, whether the formal statement of an AI-claimed result called \"Lean-verified\" or \"formally verified\" says what the paper claims.</p><p>Status: not started. No verdicts yet. A verdict starts with the status \"claimed\".</p><p>Directed by Ahraz Arifuddin</p><p>Researched and verified by different model families across Gemini, Claude, Grok, OpenAI, and Muse</p>",
+    "upload_type": "software",
+    "license": "Apache-2.0",
+    "keywords": [
+        "ai-for-science",
+        "formal-verification",
+        "foundation0",
+        "lean4",
+        "mathematics",
+        "reproducibility"
+    ],
+    "related_identifiers": [
+        {
+            "identifier": "https://github.com/Foundation-0/formal-claims-audit",
+            "relation": "isSupplementTo",
+            "scheme": "url",
+            "resource_type": "software"
+        }
+    ]
+}
