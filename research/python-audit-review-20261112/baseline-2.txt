@@ -1,0 +1,6 @@
+command: python3 scripts/audit_python_checkers.py --help
+exit: 1
+  File "<review-checkout>/scripts/audit_python_checkers.py", line 183
+    raise SystemExit(main())
+                            ^
+IndentationError: unindent does not match any outer indentation level

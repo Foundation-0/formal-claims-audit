@@ -1,0 +1,3 @@
+command: python3 scripts/check_verdicts.py
+exit: 0
+OK: checked 0 verdict file(s) (structure only).

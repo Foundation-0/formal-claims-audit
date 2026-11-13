@@ -1,0 +1,20 @@
+{
+  "retrievedAt": "2026-11-13T03:20:35.307967+00:00",
+  "base": "467a580956824e76c193f8ae72d83f0a330ecd3d",
+  "branch": "aeva/checker-audit-scope-repair-20261112",
+  "files": {
+    "README.md": "6d5ca1c5822c5d43b2e5f6131bdcfec640fa49211063f723f0ed578201bd702e",
+    "scripts/audit_python_checkers.py": "7c7475f4c7361323ad675186ad00787a2cb5a6235814927a99bf7317c57d8c48",
+    "tests/test_audit_python_checkers.py": "87ed4b3780917b3c5927ef212d2b77dfe721fdaf7ccae65a2be25b98a7628f59"
+  },
+  "checks": {
+    "unittest": "36 passed",
+    "check_verdicts": "0 structural verdict records; success",
+    "git_diff_check": "success",
+    "CLI": "subprocess exit0 NOT_DETECTED; exit1 DETECTED duplicate; exit2 INCONCLUSIVE unsupported"
+  },
+  "reviewFixes": [
+    "AugAssign true division reported at expression line",
+    "AnnAssign unsupported for comparison; no distinctness decision"
+  ]
+}

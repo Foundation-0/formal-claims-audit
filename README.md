@@ -118,6 +118,54 @@ not research results. GitHub Actions runs both commands on every push and pull r
 These are structural checks only. They do not run Lean, verify sources or links, compare mathematical
 statements, or establish that a person reviewed a verdict. A passing check does not change any result's status.
 
+## Python checker pattern scan (claimed tooling)
+
+`scripts/audit_python_checkers.py` is a source-pattern triage tool. It does not
+execute a checker, know its mathematical acceptance contract, prove arithmetic
+soundness, establish independent authorship, or issue a research verdict. An AST
+match can suggest duplicated structure; a different AST can still implement the
+same incorrect check. No-op edits, reordered code and alternative syntax can
+avoid a match. Human review and contract-based positive and negative controls
+remain necessary.
+
+```sh
+python3 scripts/audit_python_checkers.py path/to/checker.py
+python3 scripts/audit_python_checkers.py path/to/checker.py --independent path/to/other.py
+# Optional: disable literal/division pattern reporting (does not establish exactness)
+python3 scripts/audit_python_checkers.py path/to/checker.py --allow-floats
+```
+
+All modes print JSON. Exit 0 / `NOT_DETECTED` means no selected pattern was found;
+exit 1 / `DETECTED` means inspect the reported pattern or matching structure;
+exit 2 / `INCONCLUSIVE` means parsing or the requested comparison was unsupported.
+These statuses are separate from the mathematical verdicts in `verdicts/`.
+A dual scan preserves source findings even when its comparison is inconclusive.
+
+The comparison supports modules containing imports and plain top-level functions
+with simple positional parameters. It resolves local parameters and assignment
+bindings separately in each function, including shadowing of module functions.
+It preserves unresolved names, attributes, imports and literal values. Nested
+functions/classes, comprehensions, lambdas, global/nonlocal declarations,
+keyword calls, decorators, annotations and richer signatures are deliberately
+unsupported. An unsupported comparison supplies no distinctness decision.
+This narrow subset is useful for small controls; complete real-world checker
+scripts will often be inconclusive. A future extension needs binding-specific
+controls before expanding that boundary.
+
+The source scan flags float/complex literals, untyped true division, global or
+nonlocal statements, bare exception handlers and selected boolean flags set to
+true before a later conditional. These are prompts to inspect code, not proofs
+of a bug. In particular, `Fraction / Fraction` stays exact; the scanner does not
+infer operand types and reports `/` at its expression line. Replacing `/` with
+`//` can change the mathematics. Runtime conversions such as `float(text)` and
+renamed or more complex fail-open control flow are outside the selected rules.
+
+Regression controls include independent local renaming across two scopes,
+local shadowing, unsupported syntax, exact Fraction division, CLI exit codes,
+and two structurally distinct always-true checkers that both violate the same
+square-certificate contract. That last control documents a remaining limitation,
+not an independence result. Run the full unittest command above to replay them.
+
 ## How to contribute
 
 The lead is to be named, and a person signs for every result.

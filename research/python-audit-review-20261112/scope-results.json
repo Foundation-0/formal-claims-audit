@@ -1,0 +1,193 @@
+{
+  "source_sha256": "e3ce760e8f3a1fddf0d17fe2f8249708431eb7513c6085f2b9cfb9af09521ade",
+  "execution_scope": "Unchanged source lines 1-180 loaded in memory; broken CLI tail excluded",
+  "positive_alpha_copy": {
+    "verdict": "FAIL",
+    "distinct_alpha_skeleton": false,
+    "spec_skeleton_sha256": "dcb5c029b2ba4a95e9ddb3b31427d6d713fdb9b75ec9c0fa7ba6354c3e28dc98",
+    "impl_skeleton_sha256": "dcb5c029b2ba4a95e9ddb3b31427d6d713fdb9b75ec9c0fa7ba6354c3e28dc98",
+    "spec_audit": {
+      "label": "spec",
+      "alpha_skeleton_sha256": "dcb5c029b2ba4a95e9ddb3b31427d6d713fdb9b75ec9c0fa7ba6354c3e28dc98",
+      "clean": true,
+      "findings_count": 0,
+      "findings": []
+    },
+    "impl_audit": {
+      "label": "impl",
+      "alpha_skeleton_sha256": "dcb5c029b2ba4a95e9ddb3b31427d6d713fdb9b75ec9c0fa7ba6354c3e28dc98",
+      "clean": true,
+      "findings_count": 0,
+      "findings": []
+    }
+  },
+  "positive_known_hazards": {
+    "label": "<checker>",
+    "alpha_skeleton_sha256": "36ee223676cde58a79d4a549e185e54a2f8d72b73063e45486afb7a9cbe9e8de",
+    "clean": false,
+    "findings_count": 3,
+    "findings": [
+      {
+        "rule": "OPTIMISTIC_TRUE_DEFAULT_F01",
+        "line": 2,
+        "detail": "Verification flag 'differential_match' initialized to True in verify() before conditional branch (fail-open F-01 hazard)."
+      },
+      {
+        "rule": "FLOAT_LITERAL_IN_EXACT_CHECKER",
+        "line": 5,
+        "detail": "Floating-point literal 0.001 risks rounding drift; use int or fractions.Fraction."
+      },
+      {
+        "rule": "FLOAT_DIVISION_IN_EXACT_CHECKER",
+        "line": 0,
+        "detail": "True division '/' produces IEEE-754 float; use '//' or fractions.Fraction(num, den)."
+      }
+    ]
+  },
+  "vacuous_stubs": {
+    "contract": "candidate squared equals n",
+    "invalid_input": [
+      2,
+      3
+    ],
+    "expected_acceptance": false,
+    "acceptance": [
+      true,
+      true
+    ],
+    "audit": {
+      "verdict": "PASS",
+      "distinct_alpha_skeleton": true,
+      "spec_skeleton_sha256": "c1f79dbf90364c7c8e29dcde8ba5fc1e664efc806f2cf2013fce4a0bbd6a7f8a",
+      "impl_skeleton_sha256": "cbb51869185bb3b8d71ebdd357dfa0d8407aa96e124d08a3a8f25dee8f53d54f",
+      "spec_audit": {
+        "label": "spec",
+        "alpha_skeleton_sha256": "c1f79dbf90364c7c8e29dcde8ba5fc1e664efc806f2cf2013fce4a0bbd6a7f8a",
+        "clean": true,
+        "findings_count": 0,
+        "findings": []
+      },
+      "impl_audit": {
+        "label": "impl",
+        "alpha_skeleton_sha256": "cbb51869185bb3b8d71ebdd357dfa0d8407aa96e124d08a3a8f25dee8f53d54f",
+        "clean": true,
+        "findings_count": 0,
+        "findings": []
+      }
+    }
+  },
+  "copy_with_pass": {
+    "verdict": "PASS",
+    "distinct_alpha_skeleton": true,
+    "spec_skeleton_sha256": "dcb5c029b2ba4a95e9ddb3b31427d6d713fdb9b75ec9c0fa7ba6354c3e28dc98",
+    "impl_skeleton_sha256": "e7ef686c2190d9d6fa05c12df60c187e1fe1d45179730106aabd0e9bad1e7d70",
+    "spec_audit": {
+      "label": "spec",
+      "alpha_skeleton_sha256": "dcb5c029b2ba4a95e9ddb3b31427d6d713fdb9b75ec9c0fa7ba6354c3e28dc98",
+      "clean": true,
+      "findings_count": 0,
+      "findings": []
+    },
+    "impl_audit": {
+      "label": "impl",
+      "alpha_skeleton_sha256": "e7ef686c2190d9d6fa05c12df60c187e1fe1d45179730106aabd0e9bad1e7d70",
+      "clean": true,
+      "findings_count": 0,
+      "findings": []
+    }
+  },
+  "copy_with_scope_local_renaming": {
+    "inputs": [
+      -1,
+      0,
+      1
+    ],
+    "outputs_a": [
+      false,
+      false,
+      true
+    ],
+    "outputs_b": [
+      false,
+      false,
+      true
+    ],
+    "audit": {
+      "verdict": "PASS",
+      "distinct_alpha_skeleton": true,
+      "spec_skeleton_sha256": "90af39dbeb308891b74ddb5b6ef330910f4c084791b9ade8c88e04f07e73d709",
+      "impl_skeleton_sha256": "7e009127f811753b65bc92222ac278912f9218f2adba7ba98e7efdadd60d4847",
+      "spec_audit": {
+        "label": "spec",
+        "alpha_skeleton_sha256": "90af39dbeb308891b74ddb5b6ef330910f4c084791b9ade8c88e04f07e73d709",
+        "clean": true,
+        "findings_count": 0,
+        "findings": []
+      },
+      "impl_audit": {
+        "label": "impl",
+        "alpha_skeleton_sha256": "7e009127f811753b65bc92222ac278912f9218f2adba7ba98e7efdadd60d4847",
+        "clean": true,
+        "findings_count": 0,
+        "findings": []
+      }
+    }
+  },
+  "exact_fraction_division": {
+    "result": true,
+    "audit": {
+      "label": "<checker>",
+      "alpha_skeleton_sha256": "c504de1cff1f774bc1fd68184908bfcb76da09d598f44f8ac5ecbfdc5da88671",
+      "clean": false,
+      "findings_count": 1,
+      "findings": [
+        {
+          "rule": "FLOAT_DIVISION_IN_EXACT_CHECKER",
+          "line": 0,
+          "detail": "True division '/' produces IEEE-754 float; use '//' or fractions.Fraction(num, den)."
+        }
+      ]
+    }
+  },
+  "constructed_floats": {
+    "result": false,
+    "audit": {
+      "label": "<checker>",
+      "alpha_skeleton_sha256": "b901c00311473637f63e83f370286d028fc6ad867528ad4b4319b06f53d2e4d7",
+      "clean": true,
+      "findings_count": 0,
+      "findings": []
+    }
+  },
+  "renamed_fail_open": {
+    "accepts_without_secondary": true,
+    "audit": {
+      "label": "<checker>",
+      "alpha_skeleton_sha256": "bd141af2cbf140f5ca401500a521ec03efb9496dde1787b1da4920eeab720c3b",
+      "clean": true,
+      "findings_count": 0,
+      "findings": []
+    }
+  },
+  "missing_goal_boundary_control": {
+    "states": [
+      "start",
+      "goal"
+    ],
+    "edges": [
+      [
+        "start",
+        "goal",
+        1
+      ]
+    ],
+    "potential": {
+      "start": 35,
+      "goal": 35
+    },
+    "local_edge_inequality_holds": true,
+    "actual_shortest_goal_distance": 1,
+    "asserted_lower_bound_if_goal_boundary_omitted": 35,
+    "required_additional_boundary": "h(goal) <= 0"
+  }
+}
