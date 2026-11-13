@@ -1,0 +1,58 @@
+{
+  "repository": "Foundation-0/formal-claims-audit",
+  "head": "467a580956824e76c193f8ae72d83f0a330ecd3d",
+  "base": "bacf05953c10bf5105fa1209a127392d395e2f92",
+  "python": "3.14.6",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "files": {
+    "scripts/audit_python_checkers.py": {
+      "sha256": "e3ce760e8f3a1fddf0d17fe2f8249708431eb7513c6085f2b9cfb9af09521ade",
+      "git_blob": "9ed799dbeb335ef5957eb465b47012c0ab48d8f3"
+    },
+    "tests/test_audit_python_checkers.py": {
+      "sha256": "5453deedd91c88789a3dba2551a4fa9c167a357a17ecf1ab37f947203f9dbe39",
+      "git_blob": "dbed47052337c105e7ad208d8897ffbc2438779f"
+    }
+  },
+  "commands": [
+    [
+      "python3",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tests",
+      "-v"
+    ],
+    [
+      "python3",
+      "scripts/audit_python_checkers.py",
+      "--help"
+    ],
+    [
+      "python3",
+      "scripts/check_verdicts.py"
+    ]
+  ],
+  "related_sources": [
+    {
+      "repository": "Foundation-0/f0",
+      "head": "f6d42123287b58e98801e6e5d77b384fcb0099ac",
+      "path": "deep-fields/scouting/combinatorial-planning-verified-bar.md",
+      "git_blob": "03f3940f7e47696740d9a3ae9eb2f622e911a15b",
+      "local_copy": "f0-scouting-source.md",
+      "sha256": "8966dfd4b5735f116a8cc18cab853e22f2eb024699eb5157403fd64d81ed0cc5"
+    },
+    {
+      "repository": "Foundation-0/math0",
+      "head": "3d3198246c4f2ee1fc1079c57cdd936c4f2b34d0",
+      "path": "AREAS.md",
+      "git_blob": "a689c4be12b23a9bb22c0f67976a0cc44cd18981",
+      "local_copy": "math0-areas-source.md",
+      "sha256": "7344f979d3d19cad492ec05896af9488cebbccda595d26a52b6f9d6e2c7d32d9"
+    }
+  ],
+  "review_sha256": "02543858c1e70a7d77dd43a4a687d203e5784a5b9531a4047b4d8a1d041e36da",
+  "probe_sha256": "608bcb2063798de373be041a728adc9f33d17c4a8d86dfb8da7e8e309c4207f0",
+  "probe_results_sha256": "0dc6e2601e87d2f3329a10f111ee461fe897a9c2c29ba912d4d09df443c1f05a"
+}

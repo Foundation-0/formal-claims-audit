@@ -1,0 +1,86 @@
+{
+  "base": "467a580956824e76c193f8ae72d83f0a330ecd3d",
+  "branch": "aeva/checker-audit-scope-repair-20261112",
+  "files_before": {
+    "README.md": "6d5ca1c5822c5d43b2e5f6131bdcfec640fa49211063f723f0ed578201bd702e",
+    "scripts/audit_python_checkers.py": "7c7475f4c7361323ad675186ad00787a2cb5a6235814927a99bf7317c57d8c48",
+    "tests/test_audit_python_checkers.py": "87ed4b3780917b3c5927ef212d2b77dfe721fdaf7ccae65a2be25b98a7628f59"
+  },
+  "files_after": {
+    "README.md": "6d5ca1c5822c5d43b2e5f6131bdcfec640fa49211063f723f0ed578201bd702e",
+    "scripts/audit_python_checkers.py": "7c7475f4c7361323ad675186ad00787a2cb5a6235814927a99bf7317c57d8c48",
+    "tests/test_audit_python_checkers.py": "87ed4b3780917b3c5927ef212d2b77dfe721fdaf7ccae65a2be25b98a7628f59"
+  },
+  "unchanged_during_review": true,
+  "cases": {
+    "augmented_division": {
+      "source": "def check(n):\n    n /= 2\n    return n == 0\n",
+      "report": {
+        "label": "<checker>",
+        "status": "DETECTED",
+        "findings_count": 1,
+        "findings": [
+          {
+            "rule": "UNTYPED_TRUE_DIVISION",
+            "line": 2,
+            "detail": "Inspect operand types for true division: int/int produces float, while Fraction/Fraction stays exact. This scanner does not infer types; changing to // can change the mathematics."
+          }
+        ]
+      }
+    },
+    "local_annotation": {
+      "source": "def check(n):\n    x: int = n\n    return x > 0\n",
+      "report": {
+        "verdict": "INCONCLUSIVE",
+        "meaning": "Pattern scan only; no certification of soundness or independence.",
+        "comparison_status": "INCONCLUSIVE",
+        "comparison_limit": "unsupported binding construct: AnnAssign",
+        "distinct_alpha_skeleton": null,
+        "spec_skeleton_sha256": null,
+        "impl_skeleton_sha256": null,
+        "spec_audit": {
+          "label": "spec",
+          "status": "NOT_DETECTED",
+          "findings_count": 0,
+          "findings": []
+        },
+        "impl_audit": {
+          "label": "impl",
+          "status": "NOT_DETECTED",
+          "findings_count": 0,
+          "findings": []
+        }
+      }
+    }
+  },
+  "checks": {
+    "unittest": {
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ],
+      "returncode": 0
+    },
+    "verdict_structure": {
+      "command": [
+        "python3",
+        "scripts/check_verdicts.py"
+      ],
+      "returncode": 0
+    },
+    "diff_check": {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0
+    }
+  },
+  "verdict": "APPROVE_BOUNDED_REPAIR"
+}
