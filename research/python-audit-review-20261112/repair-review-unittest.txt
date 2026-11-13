@@ -1,0 +1,43 @@
+command: python3 -m unittest discover -s tests -v
+exit: 0
+test_augmented_true_division_is_reported_at_expression_line (test_audit_python_checkers.AuditPythonCheckersTests.test_augmented_true_division_is_reported_at_expression_line) ... ok
+test_catches_optimistic_true_default_f01_and_floats (test_audit_python_checkers.AuditPythonCheckersTests.test_catches_optimistic_true_default_f01_and_floats) ... ok
+test_cli_status_codes_and_json (test_audit_python_checkers.AuditPythonCheckersTests.test_cli_status_codes_and_json) ... ok
+test_distinct_syntax_reports_only_not_detected (test_audit_python_checkers.AuditPythonCheckersTests.test_distinct_syntax_reports_only_not_detected) ... ok
+test_fraction_division_is_untyped_review_finding_with_line (test_audit_python_checkers.AuditPythonCheckersTests.test_fraction_division_is_untyped_review_finding_with_line) ... ok
+test_local_annotations_are_unsupported_for_comparison (test_audit_python_checkers.AuditPythonCheckersTests.test_local_annotations_are_unsupported_for_comparison) ... ok
+test_noop_difference_does_not_certify_independence (test_audit_python_checkers.AuditPythonCheckersTests.test_noop_difference_does_not_certify_independence) ... ok
+test_parse_error_is_inconclusive (test_audit_python_checkers.AuditPythonCheckersTests.test_parse_error_is_inconclusive) ... ok
+test_rejects_alpha_renamed_copy_paste_checkers (test_audit_python_checkers.AuditPythonCheckersTests.test_rejects_alpha_renamed_copy_paste_checkers) ... ok
+test_resolves_shadowed_local_and_module_binding (test_audit_python_checkers.AuditPythonCheckersTests.test_resolves_shadowed_local_and_module_binding) ... ok
+test_separate_function_scopes_allow_independent_local_renames (test_audit_python_checkers.AuditPythonCheckersTests.test_separate_function_scopes_allow_independent_local_renames) ... ok
+test_unsupported_binding_constructs_are_inconclusive (test_audit_python_checkers.AuditPythonCheckersTests.test_unsupported_binding_constructs_are_inconclusive) ... ok
+test_all_files_are_checked_and_reported (test_check_verdicts.VerdictCheckerTests.test_all_files_are_checked_and_reported) ... ok
+test_all_five_verdicts (test_check_verdicts.VerdictCheckerTests.test_all_five_verdicts) ... ok
+test_axioms_must_be_array_of_strings_or_null (test_check_verdicts.VerdictCheckerTests.test_axioms_must_be_array_of_strings_or_null) ... ok
+test_bare_json_filename_is_checked_and_has_no_valid_id (test_check_verdicts.VerdictCheckerTests.test_bare_json_filename_is_checked_and_has_no_valid_id) ... ok
+test_commit_must_be_full_hex_hash (test_check_verdicts.VerdictCheckerTests.test_commit_must_be_full_hex_hash) ... ok
+test_default_directory_is_relative_to_script_not_working_directory (test_check_verdicts.VerdictCheckerTests.test_default_directory_is_relative_to_script_not_working_directory) ... ok
+test_directory_named_json_is_a_read_error (test_check_verdicts.VerdictCheckerTests.test_directory_named_json_is_a_read_error) ... ok
+test_documented_example (test_check_verdicts.VerdictCheckerTests.test_documented_example) ... ok
+test_duplicate_keys_are_rejected_at_any_depth (test_check_verdicts.VerdictCheckerTests.test_duplicate_keys_are_rejected_at_any_depth) ... ok
+test_empty_directory_is_explicit_and_non_json_files_are_ignored (test_check_verdicts.VerdictCheckerTests.test_empty_directory_is_explicit_and_non_json_files_are_ignored) ... ok
+test_every_nested_field_is_required (test_check_verdicts.VerdictCheckerTests.test_every_nested_field_is_required) ... ok
+test_every_top_level_field_is_required (test_check_verdicts.VerdictCheckerTests.test_every_top_level_field_is_required) ... ok
+test_extra_fields_are_allowed (test_check_verdicts.VerdictCheckerTests.test_extra_fields_are_allowed) ... ok
+test_id_must_match_filename (test_check_verdicts.VerdictCheckerTests.test_id_must_match_filename) ... ok
+test_invalid_utf8_is_reported_without_traceback (test_check_verdicts.VerdictCheckerTests.test_invalid_utf8_is_reported_without_traceback) ... ok
+test_malformed_json_is_reported_without_traceback (test_check_verdicts.VerdictCheckerTests.test_malformed_json_is_reported_without_traceback) ... ok
+test_missing_or_non_directory_paths_fail (test_check_verdicts.VerdictCheckerTests.test_missing_or_non_directory_paths_fail) ... ok
+test_nested_fields_reject_non_objects_and_non_strings (test_check_verdicts.VerdictCheckerTests.test_nested_fields_reject_non_objects_and_non_strings) ... ok
+test_nested_values_may_be_null (test_check_verdicts.VerdictCheckerTests.test_nested_values_may_be_null) ... ok
+test_nonstandard_json_numbers_are_rejected (test_check_verdicts.VerdictCheckerTests.test_nonstandard_json_numbers_are_rejected) ... ok
+test_nullable_fields_accept_missing_yet_values (test_check_verdicts.VerdictCheckerTests.test_nullable_fields_accept_missing_yet_values) ... ok
+test_text_fields_reject_non_strings (test_check_verdicts.VerdictCheckerTests.test_text_fields_reject_non_strings) ... ok
+test_top_level_must_be_object (test_check_verdicts.VerdictCheckerTests.test_top_level_must_be_object) ... ok
+test_verdict_must_be_one_of_documented_values (test_check_verdicts.VerdictCheckerTests.test_verdict_must_be_one_of_documented_values) ... ok
+
+----------------------------------------------------------------------
+Ran 36 tests in 8.896s
+
+OK
