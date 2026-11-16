@@ -26,8 +26,8 @@ class VerdictCheckerTests(unittest.TestCase):
     def write(self, value):
         self.path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
 
-    def run_checker(self, directory=None, *, script=SCRIPT, cwd=None):
-        arguments = [sys.executable, str(script)]
+    def run_checker(self, directory=None, *, script=SCRIPT, cwd=None, flags=()):
+        arguments = [sys.executable, *flags, str(script)]
         if directory is not None:
             arguments.append(str(directory))
         return subprocess.run(arguments, cwd=cwd, capture_output=True, text=True, check=False)
@@ -173,11 +173,24 @@ class VerdictCheckerTests(unittest.TestCase):
         self.assertIn("b-broken.json", result.stderr)
         self.assertLess(result.stderr.index("a-broken.json"), result.stderr.index("b-broken.json"))
 
-    def test_empty_directory_is_explicit_and_non_json_files_are_ignored(self):
+    def test_empty_directory_fails_and_non_json_files_are_ignored(self):
         (self.directory / "README.md").write_text("Not JSON.", encoding="utf-8")
         result = self.run_checker(self.directory)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("no verdict files", result.stderr)
+        self.assertNotIn("OK:", result.stdout)
+
+    def test_empty_directory_fails_under_optimise_flag(self):
+        result = self.run_checker(self.directory, flags=("-O",))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("no verdict files", result.stderr)
+        self.assertNotIn("OK:", result.stdout)
+
+    def test_valid_verdict_passes_under_optimise_flag(self):
+        self.write(EXAMPLE)
+        result = self.run_checker(self.directory, flags=("-O",))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertRegex(result.stdout, r"\b0\b")
+        self.assertRegex(result.stdout, r"\b1\b")
 
     def test_bare_json_filename_is_checked_and_has_no_valid_id(self):
         self.path = self.directory / ".json"
