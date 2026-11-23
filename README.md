@@ -118,6 +118,35 @@ not research results. GitHub Actions runs both commands on every push and pull r
 These are structural checks only. They do not run Lean, verify sources or links, compare mathematical
 statements, or establish that a person reviewed a verdict. A passing check does not change any result's status.
 
+### Python checker AST linter (optional)
+
+`scripts/audit_python_checkers.py` is an AST linter for Python certificate `verify.py`-style checkers. It is
+**not** a Lean soundness scanner and is **not** part of the CI job above (that remains verdict JSON + unittest
+only unless the project later adopts this tool in workflow).
+
+It checks single files or pairs for:
+
+- **Exact-arithmetic hazards**: float literals, true division (excluding typical `pathlib.Path / "segment"`
+  joins), `float()`, negative exponents, `math.sqrt`, and related patterns.
+- **Fail-open flags (F-01)**: locals initialized to `True` (or `not False`), returned after guards, with no
+  fail-closed assignment to `False` on failure paths (structural rule, not name-dependent).
+- **Certificate hygiene**: vacuous `assert True` / `return True`, bare `assert` (stripped under `python -O`),
+  broad `except ...: pass`, `eval`, and mutable `global` / `nonlocal` use.
+
+**CLI** (JSON on stdout by default):
+
+```sh
+python3 scripts/audit_python_checkers.py --single path/to/checker.py
+python3 scripts/audit_python_checkers.py --dual spec.py impl.py
+python3 scripts/audit_python_checkers.py spec.py --independent impl.py  # legacy alias
+```
+
+Flags: `--allow-floats`, `--json` / `--no-json`.
+
+**Dual mode** returns `PASS` only when both files are clean and their alpha-normalized skeleton hashes differ.
+That hash is a cheap copy-paste / rename lint (commutative `+`/`==`, pruned dead helpers, and similar cosmetics).
+It does **not** prove algorithmic independence; distinct implementations or differential testing are still required.
+
 ## How to contribute
 
 The lead is to be named, and a person signs for every result.
