@@ -40,6 +40,8 @@ PATH_FACTORY_ATTRS: Set[str] = {
     "Path", "PurePath", "PurePosixPath", "PureWindowsPath", "PosixPath", "WindowsPath",
 }
 PATH_MODULE_NAMES: Set[str] = {"pathlib", "posixpath", "ntpath"}
+FLOATY_MODULE_ROOTS: Set[str] = {"math", "cmath", "statistics", "numpy"}
+FRACTION_CANON = "Fraction"
 
 PRESERVED_NAMES: Set[str] = {
     "abs", "all", "any", "bin", "bool", "chr", "dict", "divmod", "enumerate",
@@ -106,12 +108,26 @@ def _is_pathlike_div(binop: ast.BinOp) -> bool:
     return False
 
 
-def _is_fraction_call(node: ast.AST) -> bool:
+def _fraction_aliases_from_stmts(stmts: List[ast.stmt]) -> Dict[str, str]:
+    aliases: Dict[str, str] = {}
+    for stmt in stmts:
+        if isinstance(stmt, ast.ImportFrom) and stmt.module == "fractions":
+            for alias in stmt.names:
+                if alias.name == "Fraction":
+                    aliases[alias.asname or alias.name] = FRACTION_CANON
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+            if _is_fraction_call(stmt.value, aliases):
+                aliases[stmt.targets[0].id] = FRACTION_CANON
+    return aliases
+
+
+def _is_fraction_call(node: ast.AST, aliases: Optional[Dict[str, str]] = None) -> bool:
     if not isinstance(node, ast.Call):
         return False
     func = node.func
-    if isinstance(func, ast.Name) and func.id == "Fraction":
-        return True
+    if isinstance(func, ast.Name):
+        if func.id == "Fraction" or (aliases and aliases.get(func.id) == FRACTION_CANON):
+            return True
     if isinstance(func, ast.Attribute) and func.attr == "Fraction":
         return True
     return False
@@ -130,21 +146,34 @@ def _fraction_names_in_scope(stmts: List[ast.stmt]) -> Set[str]:
     for stmt in stmts:
         if isinstance(stmt, ast.Assign):
             for tgt in stmt.targets:
-                if isinstance(tgt, ast.Name) and _is_fraction_call(stmt.value):
+                if isinstance(tgt, ast.Name) and _is_fraction_call(stmt.value, None):
                     names.add(tgt.id)
         elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-            if stmt.value is not None and _is_fraction_call(stmt.value):
+            if stmt.value is not None and _is_fraction_call(stmt.value, None):
                 names.add(stmt.target.id)
     return names
 
 
-def _operand_is_exact_fraction(node: ast.AST, fraction_names: Set[str]) -> bool:
-    return _is_fraction_call(node) or (isinstance(node, ast.Name) and node.id in fraction_names)
+def _operand_is_exact_fraction(
+    node: ast.AST, fraction_names: Set[str], aliases: Optional[Dict[str, str]] = None,
+) -> bool:
+    return (
+        _is_fraction_call(node, aliases)
+        or (isinstance(node, ast.Name) and node.id in fraction_names)
+    )
 
 
 def _is_exact_fraction_div(binop: ast.BinOp, enclosing_stmts: List[ast.stmt]) -> bool:
+    aliases = _fraction_aliases_from_stmts(enclosing_stmts)
     names = _fraction_names_in_scope(enclosing_stmts)
-    return _operand_is_exact_fraction(binop.left, names) and _operand_is_exact_fraction(binop.right, names)
+    for stmt in enclosing_stmts:
+        if isinstance(stmt, ast.Assign):
+            for tgt in stmt.targets:
+                if isinstance(tgt, ast.Name) and _is_fraction_call(stmt.value, aliases):
+                    names.add(tgt.id)
+    return _operand_is_exact_fraction(binop.left, names, aliases) and _operand_is_exact_fraction(
+        binop.right, names, aliases,
+    )
 
 
 def _function_enclosing_stmts(tree: ast.AST, target: ast.AST) -> List[ast.stmt]:
@@ -160,43 +189,176 @@ def _function_enclosing_stmts(tree: ast.AST, target: ast.AST) -> List[ast.stmt]:
     return []
 
 
-def _identity_helper_functions(tree: ast.Module) -> Set[str]:
-    return {
-        stmt.name
-        for stmt in tree.body
-        if isinstance(stmt, ast.FunctionDef) and _is_single_arg_identity_helper(stmt)
-    }
-
-
-def _is_single_arg_identity_helper(func: ast.FunctionDef) -> bool:
-    if func.name in CHECKER_ENTRY_NAMES or func.name.startswith("check") or func.decorator_list:
-        return False
-    args = func.args.posonlyargs + func.args.args
-    if len(args) != 1 or func.args.kwonlyargs or func.args.vararg or func.args.kwarg:
-        return False
-    body = list(func.body)
+def _strip_docstring_body(body: List[ast.stmt]) -> List[ast.stmt]:
+    body = list(body)
     if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
         if isinstance(body[0].value.value, str):
             body = body[1:]
+    return body
+
+
+def _param_identity_return_index(func: ast.FunctionDef) -> Optional[int]:
+    if func.name in CHECKER_ENTRY_NAMES or func.name.startswith("check") or func.decorator_list:
+        return None
+    args = func.args.posonlyargs + func.args.args
+    if not args or func.args.kwonlyargs or func.args.vararg or func.args.kwarg:
+        return None
+    body = _strip_docstring_body(list(func.body))
     if len(body) != 1 or not isinstance(body[0], ast.Return) or body[0].value is None:
-        return False
+        return None
     ret = body[0].value
-    return isinstance(ret, ast.Name) and ret.id == args[0].arg
+    if not isinstance(ret, ast.Name):
+        return None
+    for i, a in enumerate(args):
+        if ret.id == a.arg:
+            return i
+    return None
 
 
-def _inline_identity_call_tree(tree: ast.Module) -> ast.Module:
-    helpers = _identity_helper_functions(tree)
+def _identity_helper_map(tree: ast.Module) -> Dict[str, int]:
+    return {
+        stmt.name: idx
+        for stmt in tree.body
+        if isinstance(stmt, ast.FunctionDef)
+        for idx in [_param_identity_return_index(stmt)]
+        if idx is not None
+    }
 
+
+def _module_lambda_identity_names(tree: ast.Module) -> Set[str]:
+    names: Set[str] = set()
+    for stmt in tree.body:
+        if not isinstance(stmt, ast.Assign) or len(stmt.targets) != 1:
+            continue
+        tgt = stmt.targets[0]
+        val = stmt.value
+        if not isinstance(tgt, ast.Name) or not isinstance(val, ast.Lambda):
+            continue
+        args = val.args.posonlyargs + val.args.args
+        if len(args) != 1 or val.args.kwonlyargs or val.args.vararg or val.args.kwarg:
+            continue
+        if isinstance(val.body, ast.Name) and val.body.id == args[0].arg:
+            names.add(tgt.id)
+    return names
+
+
+def _inline_identity_call_tree(
+    tree: ast.Module, helpers: Dict[str, int], lambdas: Set[str],
+) -> ast.Module:
     class _Inliner(ast.NodeTransformer):
         def visit_Call(self, node: ast.Call) -> Any:
             self.generic_visit(node)
-            if isinstance(node.func, ast.Name) and node.func.id in helpers:
-                if len(node.args) == 1 and not node.keywords and node.args[0] is not None:
+            if isinstance(node.func, ast.Name) and not node.keywords:
+                if node.func.id in helpers:
+                    idx = helpers[node.func.id]
+                    if idx < len(node.args) and node.args[idx] is not None:
+                        return node.args[idx]
+                if node.func.id in lambdas and len(node.args) == 1 and node.args[0] is not None:
                     return node.args[0]
             return node
 
     new_body = [_Inliner().visit(stmt) for stmt in tree.body]
     return ast.Module(body=new_body, type_ignores=tree.type_ignores)
+
+
+def _fold_constant_ifs(body: List[ast.stmt]) -> List[ast.stmt]:
+    out: List[ast.stmt] = []
+    for stmt in body:
+        if isinstance(stmt, ast.If) and isinstance(stmt.test, ast.Constant):
+            if stmt.test.value is True:
+                out.extend(stmt.body)
+            elif stmt.test.value is False:
+                out.extend(stmt.orelse)
+            else:
+                out.append(stmt)
+        else:
+            out.append(stmt)
+    return out
+
+
+def _drop_unread_assigns(body: List[ast.stmt]) -> List[ast.stmt]:
+    out: List[ast.stmt] = []
+    for i, stmt in enumerate(body):
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+            name = stmt.targets[0].id
+            used_later = any(
+                isinstance(n, ast.Name) and n.id == name and isinstance(n.ctx, ast.Load)
+                for s in body[i + 1 :]
+                for n in ast.walk(s)
+            )
+            if not used_later:
+                continue
+        out.append(stmt)
+    return out
+
+
+class _AlgebraicFolder(ast.NodeTransformer):
+    def visit_BinOp(self, node: ast.BinOp) -> Any:
+        node = self.generic_visit(node)
+        if isinstance(node.op, ast.Mult):
+            if isinstance(node.left, ast.Constant) and node.left.value == 1:
+                return node.right
+            if isinstance(node.right, ast.Constant) and node.right.value == 1:
+                return node.left
+        if isinstance(node.op, ast.Add):
+            if isinstance(node.left, ast.Constant) and node.left.value == 0:
+                return node.right
+            if isinstance(node.right, ast.Constant) and node.right.value == 0:
+                return node.left
+        if isinstance(node.op, ast.Sub) and isinstance(node.right, ast.Constant) and node.right.value == 0:
+            return node.left
+        if isinstance(node.op, ast.FloorDiv):
+            if isinstance(node.right, ast.Constant) and node.right.value == 1:
+                return node.left
+            if isinstance(node.left, ast.Constant) and node.left.value == 1:
+                return node.right
+        return node
+
+
+def _fold_stmt_algebra(stmt: ast.stmt) -> ast.stmt:
+    folder = _AlgebraicFolder()
+    if isinstance(stmt, ast.Return) and stmt.value is not None:
+        return ast.copy_location(ast.Return(value=folder.visit(stmt.value)), stmt)
+    if isinstance(stmt, ast.Assign):
+        return ast.copy_location(
+            ast.Assign(targets=stmt.targets, value=folder.visit(stmt.value)),
+            stmt,
+        )
+    if isinstance(stmt, ast.Expr):
+        return ast.copy_location(ast.Expr(value=folder.visit(stmt.value)), stmt)
+    return folder.visit(stmt)
+
+
+def _preprocess_function_body(body: List[ast.stmt]) -> List[ast.stmt]:
+    body = _fold_constant_ifs(body)
+    body = _drop_unread_assigns(body)
+    return [_fold_stmt_algebra(s) for s in body]
+
+
+def _preprocess_skeleton_module(tree: ast.Module) -> ast.Module:
+    helpers = _identity_helper_map(tree)
+    lambdas = _module_lambda_identity_names(tree)
+    new_body: List[ast.stmt] = []
+    for stmt in tree.body:
+        if isinstance(stmt, ast.FunctionDef) and stmt.name in helpers:
+            continue
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+            if stmt.targets[0].id in lambdas:
+                continue
+        if isinstance(stmt, ast.FunctionDef):
+            stmt = ast.copy_location(
+                ast.FunctionDef(
+                    name=stmt.name,
+                    args=stmt.args,
+                    body=_preprocess_function_body(list(stmt.body)),
+                    decorator_list=stmt.decorator_list,
+                    returns=stmt.returns,
+                ),
+                stmt,
+            )
+        new_body.append(stmt)
+    tree = ast.Module(body=new_body, type_ignores=tree.type_ignores)
+    return _inline_identity_call_tree(tree, helpers, lambdas)
 
 
 def _resolve_local_module_paths(tree: ast.AST, base_dir: Path) -> List[Path]:
@@ -229,6 +391,11 @@ def _resolve_local_module_paths(tree: ast.AST, base_dir: Path) -> List[Path]:
                     continue
                 add_file(base_dir / f"{node.module.replace('.', '/')}.py")
                 add_file(base_dir / node.module.replace(".", "/") / "__init__.py")
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    sub = base_dir / node.module.replace(".", "/") / f"{alias.name}.py"
+                    add_file(sub)
             elif node.level:
                 rel = ("." * node.level) + (node.module or "")
                 # level 1: same directory as checker
@@ -358,16 +525,7 @@ def alpha_skeleton_sha256(
     semantic equivalence under non-commutative edits, or true dual-checker independence.
     """
     tree = _prune_uncalled_module_functions(ast.parse(source, filename=str(source_path or "<checker>")))
-    identity_helpers = _identity_helper_functions(tree)
-    tree = _inline_identity_call_tree(tree)
-    tree = ast.Module(
-        body=[
-            s
-            for s in tree.body
-            if not (isinstance(s, ast.FunctionDef) and s.name in identity_helpers)
-        ],
-        type_ignores=tree.type_ignores,
-    )
+    tree = _preprocess_skeleton_module(tree)
     keep = PRESERVED_NAMES | (preserved_api or set())
     id_map: Dict[str, str] = {}
 
@@ -662,6 +820,7 @@ def _handler_body_swallows(handler: ast.ExceptHandler) -> bool:
 
 def _collect_float_division_findings(tree: ast.AST) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
+    module_stmts = tree.body if isinstance(tree, ast.Module) else []
     for node in ast.walk(tree):
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
             if _is_pathlike_div(node):
@@ -673,7 +832,7 @@ def _collect_float_division_findings(tree: ast.AST) -> List[Dict[str, Any]]:
                     "detail": "Decimal division rounds; not exact for certificate checkers.",
                 })
                 continue
-            stmts = _function_enclosing_stmts(tree, node)
+            stmts = module_stmts + _function_enclosing_stmts(tree, node)
             if _is_exact_fraction_div(node, stmts):
                 continue
             out.append({
@@ -692,57 +851,199 @@ def _collect_float_division_findings(tree: ast.AST) -> List[Dict[str, Any]]:
     return out
 
 
+def _floaty_bindings(tree: ast.AST) -> Dict[str, str]:
+    """Map local names to floaty module roots (math, cmath, statistics, numpy)."""
+    binds: Dict[str, str] = {}
+    body = tree.body if isinstance(tree, ast.Module) else []
+    for stmt in body:
+        if isinstance(stmt, ast.Import):
+            for alias in stmt.names:
+                root = alias.name.split(".", 1)[0]
+                if root in FLOATY_MODULE_ROOTS:
+                    binds[alias.asname or root] = root
+        elif isinstance(stmt, ast.ImportFrom) and stmt.module:
+            root = stmt.module.split(".", 1)[0]
+            if root not in FLOATY_MODULE_ROOTS:
+                continue
+            for alias in stmt.names:
+                local = alias.asname or alias.name
+                if root == "numpy":
+                    binds[local] = "numpy"
+                    continue
+                if root in ("cmath", "statistics"):
+                    binds[local] = root
+                    continue
+                if alias.name == "*":
+                    binds["*"] = "math"
+                    continue
+                if alias.name not in MATH_INT_ONLY_ATTRS:
+                    binds[local] = f"math:attr:{alias.name}"
+                else:
+                    binds[local] = f"math:safe:{alias.name}"
+    return binds
+
+
+def _is_negative_pow_exponent(expr: ast.expr) -> bool:
+    if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.USub):
+        return True
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, (int, float)) and expr.value < 0:
+        return True
+    return False
+
+
 def _collect_math_numpy_findings(tree: ast.AST) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
+    binds = _floaty_bindings(tree)
+    seen: Set[Tuple[int, str]] = set()
+
+    def add(rule: str, line: int, detail: str) -> None:
+        key = (line, rule)
+        if key not in seen:
+            seen.add(key)
+            out.append({"rule": rule, "line": line, "detail": detail})
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 root = alias.name.split(".", 1)[0]
-                if root == "numpy" or alias.name == "numpy":
-                    out.append({
-                        "rule": "NUMPY_IN_EXACT_CHECKER",
-                        "line": node.lineno,
-                        "detail": "numpy is float-oriented; avoid in exact certificate checkers.",
-                    })
+                if root == "numpy":
+                    add(
+                        "NUMPY_IN_EXACT_CHECKER",
+                        node.lineno,
+                        "numpy is float-oriented; avoid in exact certificate checkers.",
+                    )
+                elif root == "cmath":
+                    add(
+                        "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
+                        node.lineno,
+                        "cmath is float-oriented; avoid in exact certificate checkers.",
+                    )
+                elif root == "statistics":
+                    add(
+                        "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
+                        node.lineno,
+                        "statistics is float-oriented; avoid in exact certificate checkers.",
+                    )
         elif isinstance(node, ast.ImportFrom) and node.module:
             root = node.module.split(".", 1)[0]
             if root == "numpy":
-                out.append({
-                    "rule": "NUMPY_IN_EXACT_CHECKER",
-                    "line": node.lineno,
-                    "detail": "numpy is float-oriented; avoid in exact certificate checkers.",
-                })
+                add(
+                    "NUMPY_IN_EXACT_CHECKER",
+                    node.lineno,
+                    "numpy is float-oriented; avoid in exact certificate checkers.",
+                )
+            elif root == "cmath":
+                add(
+                    "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
+                    node.lineno,
+                    "cmath is float-oriented; avoid in exact certificate checkers.",
+                )
+            elif root == "statistics":
+                add(
+                    "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
+                    node.lineno,
+                    "statistics is float-oriented; avoid in exact certificate checkers.",
+                )
             elif node.module == "math":
                 for alias in node.names:
                     name = alias.name
                     if name == "*":
-                        out.append({
-                            "rule": "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
-                            "line": node.lineno,
-                            "detail": "from math import * pulls in float routines; use int-only math attrs.",
-                        })
+                        add(
+                            "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
+                            node.lineno,
+                            "from math import * pulls in float routines; use int-only math attrs.",
+                        )
                     elif name not in MATH_INT_ONLY_ATTRS:
-                        out.append({
-                            "rule": "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
-                            "line": node.lineno,
-                            "detail": f"math.{name} may produce floats; int-only allowlist applies.",
-                        })
-        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name):
+                        add(
+                            "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
+                            node.lineno,
+                            f"math.{name} may produce floats; int-only allowlist applies.",
+                        )
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
                 mod = node.func.value.id
                 attr = node.func.attr
-                if mod == "math" and attr not in MATH_INT_ONLY_ATTRS:
-                    out.append({
-                        "rule": "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
-                        "line": node.lineno,
-                        "detail": f"math.{attr} may produce floats; int-only allowlist applies.",
-                    })
-                if mod in ("np", "numpy"):
-                    out.append({
-                        "rule": "NUMPY_IN_EXACT_CHECKER",
-                        "line": node.lineno,
-                        "detail": "numpy call in exact checker.",
-                    })
+                root = binds.get(mod, mod)
+                if root == "numpy" or mod in ("np", "numpy"):
+                    add("NUMPY_IN_EXACT_CHECKER", node.lineno, "numpy call in exact checker.")
+                elif root == "cmath":
+                    add(
+                        "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
+                        node.lineno,
+                        f"cmath.{attr} is float-oriented.",
+                    )
+                elif root == "statistics":
+                    add(
+                        "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
+                        node.lineno,
+                        f"statistics.{attr} is float-oriented.",
+                    )
+                elif root == "math" and attr not in MATH_INT_ONLY_ATTRS:
+                    add(
+                        "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
+                        node.lineno,
+                        f"math.{attr} may produce floats; int-only allowlist applies.",
+                    )
+            elif isinstance(node.func, ast.Name):
+                bound = binds.get(node.func.id)
+                if bound == "numpy":
+                    add("NUMPY_IN_EXACT_CHECKER", node.lineno, "numpy call in exact checker.")
+                elif bound == "cmath":
+                    add(
+                        "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
+                        node.lineno,
+                        "cmath call via import alias in exact checker.",
+                    )
+                elif bound == "statistics":
+                    add(
+                        "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
+                        node.lineno,
+                        "statistics call via import alias in exact checker.",
+                    )
+                elif bound and bound.startswith("math:attr:"):
+                    attr = bound.split(":", 2)[2]
+                    if attr not in MATH_INT_ONLY_ATTRS:
+                        add(
+                            "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
+                            node.lineno,
+                            f"math.{attr} via import alias may produce floats.",
+                        )
+                elif node.func.id == "pow" and len(node.args) >= 2:
+                    exp = node.args[1]
+                    if _is_negative_pow_exponent(exp):
+                        add(
+                            "FLOAT_NEGATIVE_EXPONENT",
+                            node.lineno,
+                            "pow() with negative exponent often produces float; use exact rationals.",
+                        )
+                    elif not isinstance(exp, ast.Constant):
+                        add(
+                            "FLOAT_NON_LITERAL_EXPONENT",
+                            node.lineno,
+                            "pow() exponent is not a literal; may yield float in exact checkers.",
+                        )
+    return out
+
+
+def _collect_dynamic_import_findings(tree: ast.AST) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name) and node.func.id == "__import__":
+            out.append({
+                "rule": "DYNAMIC_IMPORT_IN_CHECKER",
+                "line": node.lineno,
+                "detail": "Dynamic __import__() breaks static dual-checker copy lint.",
+            })
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "import_module":
+            val = node.func.value
+            if isinstance(val, ast.Name) and val.id == "importlib":
+                out.append({
+                    "rule": "DYNAMIC_IMPORT_IN_CHECKER",
+                    "line": node.lineno,
+                    "detail": "importlib.import_module() breaks static dual-checker copy lint.",
+                })
     return out
 
 
@@ -750,6 +1051,7 @@ def audit_checker_source(source: str, label: str = "<checker>", strict_exact_mat
     tree = ast.parse(source, filename=label)
     findings: List[Dict[str, Any]] = []
 
+    findings.extend(_collect_dynamic_import_findings(tree))
     if strict_exact_math:
         findings.extend(_collect_float_division_findings(tree))
         findings.extend(_collect_math_numpy_findings(tree))
@@ -881,6 +1183,7 @@ def audit_dual_checkers(
     i_skel = alpha_skeleton_sha256(impl_source, preserved_api=preserved_api, source_path=impl_path)
     distinct = s_skel != i_skel
     shared_local: List[str] = []
+    dual_findings: List[Dict[str, Any]] = []
     if spec_path is not None and impl_path is not None:
         spec_tree = ast.parse(spec_source, filename=str(spec_path))
         impl_tree = ast.parse(impl_source, filename=str(impl_path))
@@ -893,12 +1196,33 @@ def audit_dual_checkers(
         shared_local = sorted(spec_locals & impl_locals)
         if shared_local:
             distinct = False
+        spec_del = bool(spec_locals)
+        impl_del = bool(impl_locals)
+        if spec_del != impl_del:
+            distinct = False
+            dual_findings.append({
+                "rule": "LOCAL_MODULE_DELEGATION_MISMATCH",
+                "line": 0,
+                "detail": (
+                    "One checker delegates to a local module while the other inlines logic; "
+                    "dual mode cannot treat them as independent."
+                ),
+            })
+    for label, src in (("spec", spec_source), ("impl", impl_source)):
+        for f in _collect_dynamic_import_findings(ast.parse(src, filename=label)):
+            distinct = False
+            dual_findings.append({**f, "detail": f"{f['detail']} ({label})"})
     clean = s_rep["clean"] and i_rep["clean"]
-    verdict = VERDICT_DISTINCT_LINT_CLEAN if (distinct and clean) else VERDICT_FAIL
+    verdict = (
+        VERDICT_DISTINCT_LINT_CLEAN
+        if (distinct and clean and not dual_findings)
+        else VERDICT_FAIL
+    )
     return {
         "verdict": verdict,
         "distinct_alpha_skeleton": distinct,
         "shared_local_modules": shared_local,
+        "dual_findings": dual_findings,
         "spec_skeleton_sha256": s_skel,
         "impl_skeleton_sha256": i_skel,
         "spec_audit": s_rep,

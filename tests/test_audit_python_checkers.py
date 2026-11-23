@@ -423,5 +423,97 @@ class AuditPythonCheckersTests(unittest.TestCase):
         self.assertNotIn("FLOAT_DIVISION_IN_EXACT_CHECKER", rules)
 
 
+class P16R3Round4Tests(unittest.TestCase):
+    """Review controls from p16r3 probes (round 4)."""
+
+    P16 = Path(__file__).resolve().parent / "fixtures" / "p16r3"
+
+    def _read(self, name: str) -> str:
+        return (self.P16 / name).read_text(encoding="utf-8")
+
+    def _dual(self, left: str, right: str):
+        spec_path = self.P16 / left
+        impl_path = self.P16 / right
+        return audit_dual_checkers(
+            spec_path.read_text(encoding="utf-8"),
+            impl_path.read_text(encoding="utf-8"),
+            spec_path=spec_path,
+            impl_path=impl_path,
+        )
+
+    def _single(self, name: str):
+        path = self.P16 / name
+        return audit_checker_source(path.read_text(encoding="utf-8"), label=str(path))
+
+    def test_dual_noop_cosmetics_fail(self) -> None:
+        for other in (
+            "noop_two.py",
+            "noop_lambda.py",
+            "noop_deadcode.py",
+            "noop_iftrue.py",
+            "noop_mul1.py",
+        ):
+            with self.subTest(other=other):
+                rep = self._dual("base.py", other)
+                self.assertEqual(rep["verdict"], VERDICT_FAIL, other)
+                self.assertFalse(rep["distinct_alpha_skeleton"], other)
+
+    def test_dual_dynamic_import_fail(self) -> None:
+        rep = self._dual("wrap_c.py", "wrap_d.py")
+        self.assertEqual(rep["verdict"], VERDICT_FAIL)
+        rules = {f["rule"] for f in rep["dual_findings"]}
+        self.assertIn("DYNAMIC_IMPORT_IN_CHECKER", rules)
+
+    def test_dual_shared_pkg_import_fail(self) -> None:
+        rep = self._dual("wrap_e.py", "wrap_f.py")
+        self.assertEqual(rep["verdict"], VERDICT_FAIL)
+        self.assertFalse(rep["distinct_alpha_skeleton"])
+        self.assertTrue(rep["shared_local_modules"])
+
+    def test_dual_local_module_vs_inline_fail(self) -> None:
+        rep = self._dual("wrap_a.py", "base.py")
+        self.assertEqual(rep["verdict"], VERDICT_FAIL)
+        rules = {f["rule"] for f in rep["dual_findings"]}
+        self.assertIn("LOCAL_MODULE_DELEGATION_MISMATCH", rules)
+
+    def test_math_import_alias_flagged(self) -> None:
+        rules = {f["rule"] for f in self._single("m2.py")["findings"]}
+        self.assertIn("FLOAT_MATH_CALL_IN_EXACT_CHECKER", rules)
+
+    def test_cmath_and_statistics_flagged(self) -> None:
+        for name in ("m4.py", "m5.py"):
+            with self.subTest(name=name):
+                rules = {f["rule"] for f in self._single(name)["findings"]}
+                self.assertIn("FLOAT_MATH_CALL_IN_EXACT_CHECKER", rules)
+
+    def test_pow_negative_exponent_flagged(self) -> None:
+        rules = {f["rule"] for f in self._single("m8.py")["findings"]}
+        self.assertIn("FLOAT_NEGATIVE_EXPONENT", rules)
+
+    def test_fraction_alias_division_clean(self) -> None:
+        self.assertTrue(self._single("f2.py")["clean"])
+
+    def test_fraction_canonical_and_decimal(self) -> None:
+        self.assertTrue(self._single("f1.py")["clean"])
+        self.assertTrue(self._single("f3.py")["clean"])
+        rules = {f["rule"] for f in self._single("f4.py")["findings"]}
+        self.assertIn("FLOAT_DIVISION_IN_EXACT_CHECKER", rules)
+
+    def test_math_int_ops_and_pathlib_regression(self) -> None:
+        for name in ("m7.py", "fl.py", "p1.py"):
+            with self.subTest(name=name):
+                self.assertTrue(self._single(name)["clean"], name)
+
+    def test_f01_shapes_regression(self) -> None:
+        for name in ("e1.py", "e2.py", "e3.py", "e4.py"):
+            with self.subTest(name=name):
+                self.assertFalse(self._single(name)["clean"], name)
+        self.assertTrue(self._single("e5.py")["clean"])
+
+    def test_e6_optimistic_return_known_limit(self) -> None:
+        """Documented limit: no F-01 without a guard after optimistic init."""
+        self.assertTrue(self._single("e6.py")["clean"])
+
+
 if __name__ == "__main__":
     unittest.main()
