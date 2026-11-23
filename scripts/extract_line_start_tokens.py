@@ -26,12 +26,7 @@ def extract_tokens(text: str) -> list[str]:
     seen: set[str] = set()
     ordered: list[str] = []
     for match in _LINE.finditer(text):
-        keyword = match.group(1)
         name = match.group(2)
-        line = text[match.start() : text.find("\n", match.start())]
-        prefix = line[: line.index(keyword)]
-        if "noncomputable" in prefix and keyword in ("def", "abbrev"):
-            continue
         if name not in seen:
             seen.add(name)
             ordered.append(name)

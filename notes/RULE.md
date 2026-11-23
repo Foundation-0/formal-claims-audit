@@ -13,10 +13,7 @@ On each line, after optional leading whitespace:
    `class`, or `instance`).
 3. The first identifier token on that line, which may be namespace-qualified (`Gate.eval`).
 
-If `noncomputable` appears among the modifiers on that line and the keyword is `def` or
-`abbrev`, the line is skipped. This excludes machine-checked `noncomputable def` / `noncomputable
-abbrev` bodies while keeping computable `def` / `abbrev` names inside a `noncomputable section`
-block.
+Every matching line counts, including `noncomputable def` and `noncomputable abbrev`.
 
 ## Files
 

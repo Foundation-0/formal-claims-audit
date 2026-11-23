@@ -60,6 +60,8 @@
         "Gate.eval",
         "Program.eval",
         "Circuit.eval",
+        "zeta",
+        "fourierMatrix",
         "Circuit.Computes",
         "MainStatement",
         "main_theorem"
@@ -75,6 +77,7 @@
       "axioms": null,
       "comparison": "not-run",
       "line_start_tokens": [
+        "zeta",
         "empty",
         "tab",
         "look",
@@ -82,14 +85,19 @@
         "sow",
         "map",
         "sc",
+        "Ty.blank",
         "pay",
         "pass",
         "one",
         "word",
         "steps",
+        "NOp.run",
+        "Atom.run",
         "Port",
         "depthRun",
+        "Code.run",
         "Prog",
+        "run",
         "paperM",
         "paperW",
         "paperDelta",
@@ -129,6 +137,7 @@
         "MonoAP",
         "HasMonoAP",
         "IsRamsey",
+        "W",
         "uniform_lower_bound"
       ]
     },
@@ -146,6 +155,9 @@
         "PatternVertex",
         "incidence",
         "H",
+        "homCount",
+        "homDensity",
+        "edgeDensity",
         "main"
       ]
     },
@@ -180,6 +192,8 @@
       "line_start_tokens": [
         "Plane",
         "IsUnitPair",
+        "unitPairCount",
+        "u",
         "main"
       ]
     }

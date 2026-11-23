@@ -13,8 +13,14 @@ INVENTORY = ROOT / "notes" / "family-source-inventory.json"
 SCRIPT = ROOT / "scripts" / "extract_line_start_tokens.py"
 SOURCES = ROOT / "notes" / "pinned-sources"
 
+sys.path.insert(0, str(ROOT / "scripts"))
+from extract_line_start_tokens import extract_tokens  # noqa: E402
+
 
 class LineStartTokenTests(unittest.TestCase):
+    def test_noncomputable_def_is_captured(self):
+        sample = "noncomputable def foo : Nat := 0\n"
+        self.assertEqual(extract_tokens(sample), ["foo"])
     def test_inventory_matches_extraction_script(self):
         inventory = json.loads(INVENTORY.read_text(encoding="utf-8"))
         result = subprocess.run(
