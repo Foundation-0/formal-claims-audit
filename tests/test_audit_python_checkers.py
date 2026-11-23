@@ -173,6 +173,19 @@ class AuditPythonCheckersTests(unittest.TestCase):
 
     # --- F-01 fail-closed vs fail-open ---
 
+    def test_f01_structural_all_good_without_suspicious_name(self) -> None:
+        src = (
+            "def run(items):\n"
+            "    all_good = True\n"
+            "    for i in items:\n"
+            "        if i < 0:\n"
+            '            print("bad")\n'
+            "    return all_good\n"
+        )
+        rep = audit_checker_source(src)
+        rules = {f["rule"] for f in rep["findings"]}
+        self.assertIn("OPTIMISTIC_TRUE_DEFAULT_F01", rules)
+
     def test_f01_fail_closed_not_flagged(self) -> None:
         src = (
             "def verify(x):\n"

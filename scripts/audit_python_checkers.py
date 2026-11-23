@@ -11,8 +11,9 @@ Detects common empirical verification hazards in agent-authored checkers:
 2. ``FLOAT_LITERAL`` / ``FLOAT_DIVISION``: IEEE-754 hazards in exact checkers
    (excludes ``pathlib.Path`` ``/`` joins).
 
-3. ``OPTIMISTIC_TRUE_DEFAULT_F01``: fail-open boolean flags initialized to
-   ``True`` before a guard that does not set ``False`` on failure.
+3. ``OPTIMISTIC_TRUE_DEFAULT_F01``: locals initialized to ``True`` (or ``not False``)
+   that are returned after guards with no fail-closed ``False`` assignment
+   (structural rule; suspicious names only affect the detail string).
 
 4. Additional rules: vacuous stubs, bare ``assert``, broad ``except ...: pass``,
    ``eval``, and related patterns documented in ``audit_checker_source``.
@@ -336,6 +337,26 @@ def alpha_skeleton_sha256(source: str, preserved_api: Set[str] | None = None) ->
     return hashlib.sha256(dumped.encode("utf-8")).hexdigest()
 
 
+def _expr_is_optimistic_true(expr: ast.expr) -> bool:
+    if isinstance(expr, ast.Constant) and expr.value is True:
+        return True
+    if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.Not):
+        if isinstance(expr.operand, ast.Constant) and expr.operand.value is False:
+            return True
+    return False
+
+
+def _var_returned_from_func(func: ast.FunctionDef | ast.AsyncFunctionDef, var: str) -> bool:
+    for node in ast.walk(func):
+        if isinstance(node, ast.Return) and node.value is not None:
+            if isinstance(node.value, ast.Name) and node.value.id == var:
+                return True
+            for sub in ast.walk(node.value):
+                if isinstance(sub, ast.Name) and sub.id == var:
+                    return True
+    return False
+
+
 def _assigns_false_to(stmts: List[ast.stmt], var: str) -> bool:
     for stmt in stmts:
         if isinstance(stmt, ast.Assign):
@@ -364,40 +385,32 @@ def _is_optimistic_true_init(
 ) -> bool:
     var: Optional[str] = None
     if isinstance(stmt, ast.Assign):
-        if not isinstance(stmt.value, ast.Constant) or stmt.value.value is not True:
-            if isinstance(stmt.value, ast.UnaryOp) and isinstance(stmt.value.op, ast.Not):
-                if isinstance(stmt.value.operand, ast.Constant) and stmt.value.operand.value is False:
-                    pass
-                else:
-                    return False
-            else:
-                return False
+        if not _expr_is_optimistic_true(stmt.value):
+            return False
         for tgt in stmt.targets:
-            if isinstance(tgt, ast.Name) and tgt.id.lower() in SUSPICIOUS_BOOL_NAMES:
+            if isinstance(tgt, ast.Name):
                 var = tgt.id
                 break
     elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-        if stmt.target.id.lower() not in SUSPICIOUS_BOOL_NAMES:
+        if stmt.value is None or not _expr_is_optimistic_true(stmt.value):
             return False
-        val = stmt.value
-        if isinstance(val, ast.Constant) and val.value is True:
-            var = stmt.target.id
-        elif isinstance(val, ast.UnaryOp) and isinstance(val.op, ast.Not):
-            if isinstance(val.operand, ast.Constant) and val.operand.value is False:
-                var = stmt.target.id
-        else:
-            return False
+        var = stmt.target.id
     else:
         return False
     if var is None:
         return False
+    if not _var_returned_from_func(func, var):
+        return False
     rest = func.body[idx + 1 :]
     if not rest:
         return False
-    has_guard = any(isinstance(s, ast.If) for s in ast.walk(ast.Module(body=rest, type_ignores=[])))
+    has_guard = any(
+        isinstance(s, (ast.If, ast.For, ast.While, ast.With))
+        for s in ast.walk(ast.Module(body=rest, type_ignores=[]))
+    )
     if not has_guard:
         return False
-    if _assigns_false_to(rest, var):
+    if _assigns_false_to(func.body[idx + 1 :], var):
         return False
     return True
 
@@ -527,12 +540,17 @@ def audit_checker_source(source: str, label: str = "<checker>", strict_exact_mat
                         if isinstance(stmt, ast.Assign)
                         else stmt.target.id  # type: ignore[union-attr]
                     )
+                    name_hint = (
+                        " (name matches verification-flag pattern)"
+                        if name.lower() in SUSPICIOUS_BOOL_NAMES
+                        else ""
+                    )
                     findings.append({
                         "rule": "OPTIMISTIC_TRUE_DEFAULT_F01",
                         "line": stmt.lineno,
                         "detail": (
-                            f"Verification flag {name!r} initialized to True in {node.name}() "
-                            "before conditional branch without fail-closed False assignment (fail-open F-01 hazard)."
+                            f"Flag {name!r} initialized optimistically in {node.name}(), returned after "
+                            f"guards with no fail-closed False assignment (fail-open F-01 hazard){name_hint}."
                         ),
                     })
             for stmt in stmts:
