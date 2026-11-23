@@ -21,6 +21,27 @@ class LineStartTokenTests(unittest.TestCase):
     def test_noncomputable_def_is_captured(self):
         sample = "noncomputable def foo : Nat := 0\n"
         self.assertEqual(extract_tokens(sample), ["foo"])
+
+    def test_modifier_order_noncomputable_private(self):
+        sample = "noncomputable private def bar : Nat := 0\n"
+        self.assertEqual(extract_tokens(sample), ["bar"])
+
+    def test_modifier_order_private_noncomputable(self):
+        sample = "private noncomputable def baz : Nat := 0\n"
+        self.assertEqual(extract_tokens(sample), ["baz"])
+
+    def test_attribute_prefixed_theorem(self):
+        sample = "@[simp] theorem qux : True := trivial\n"
+        self.assertEqual(extract_tokens(sample), ["qux"])
+
+    def test_attribute_list_prefixed_def(self):
+        sample = "@[simp, reducible] def mixed : Nat := 1\n"
+        self.assertEqual(extract_tokens(sample), ["mixed"])
+
+    def test_multiple_attribute_prefixes_lemma(self):
+        sample = "@[a] @[b] lemma chained : True := trivial\n"
+        self.assertEqual(extract_tokens(sample), ["chained"])
+
     def test_inventory_matches_extraction_script(self):
         inventory = json.loads(INVENTORY.read_text(encoding="utf-8"))
         result = subprocess.run(

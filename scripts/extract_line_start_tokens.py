@@ -14,19 +14,37 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_INVENTORY = ROOT / "notes" / "family-source-inventory.json"
 DEFAULT_SOURCES = ROOT / "notes" / "pinned-sources"
 
-_LINE = re.compile(
-    r"^[\t ]*(?:(?:private|protected|unsafe)\s+)*(?:noncomputable\s+)*"
-    r"(theorem|lemma|def|abbrev)\s+"
-    r"([A-Za-z_][\w.]*)",
-    re.MULTILINE,
-)
+_LINE_PREFIX = re.compile(r"^[\t ]*(?:@\[[^\]]*\][\t ]*)*")
+_MODIFIER = re.compile(r"^(private|protected|unsafe|noncomputable)\s+")
+_DECLARATION = re.compile(r"^(theorem|lemma|def|abbrev)\s+([A-Za-z_][\w.]*)")
+
+
+def declaration_name_on_line(line: str) -> str | None:
+    """Return the declaration identifier on this line, or None."""
+    match = _DECLARATION.match(_declaration_rest(line))
+    if match is None:
+        return None
+    return match.group(2)
+
+
+def _declaration_rest(line: str) -> str:
+    rest = _LINE_PREFIX.match(line)
+    text = line[rest.end() :] if rest else line
+    while True:
+        text = text.lstrip()
+        mod = _MODIFIER.match(text)
+        if mod is None:
+            return text
+        text = text[mod.end() :]
 
 
 def extract_tokens(text: str) -> list[str]:
     seen: set[str] = set()
     ordered: list[str] = []
-    for match in _LINE.finditer(text):
-        name = match.group(2)
+    for line in text.splitlines():
+        name = declaration_name_on_line(line)
+        if name is None:
+            continue
         if name not in seen:
             seen.add(name)
             ordered.append(name)

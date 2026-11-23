@@ -8,12 +8,16 @@ complete theorem or declaration list.
 
 On each line, after optional leading whitespace:
 
-1. Optional modifiers (any order, repeated): `private`, `protected`, `unsafe`, `noncomputable`.
-2. A declaration keyword: `theorem`, `lemma`, `def`, or `abbrev` (not `structure`, `inductive`,
+1. Optional attribute prefixes on the same line: one or more `@[…]` tokens (including
+   comma-separated attribute lists inside the brackets), e.g. `@[simp] theorem …` or
+   `@[simp, reducible] def …`.
+2. Optional modifiers (any order, repeated): `private`, `protected`, `unsafe`, `noncomputable`.
+3. A declaration keyword: `theorem`, `lemma`, `def`, or `abbrev` (not `structure`, `inductive`,
    `class`, or `instance`).
-3. The first identifier token on that line, which may be namespace-qualified (`Gate.eval`).
+4. The first identifier token on that line, which may be namespace-qualified (`Gate.eval`).
 
-Every matching line counts, including `noncomputable def` and `noncomputable abbrev`.
+Every matching line counts, including `noncomputable def` and `noncomputable abbrev`. A declaration
+whose attributes appear only on the preceding line is already matched by the keyword line alone.
 
 ## Files
 
