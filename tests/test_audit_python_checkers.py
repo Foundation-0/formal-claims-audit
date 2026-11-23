@@ -88,6 +88,31 @@ class AuditPythonCheckersTests(unittest.TestCase):
         self.assertEqual(rep["verdict"], "FAIL")
         self.assertFalse(rep["distinct_alpha_skeleton"])
 
+    def test_dual_leading_unused_identity_helper_same_skeleton(self) -> None:
+        spec = "def check(a, b):\n    total = a + b\n    return total == 4\n"
+        impl = "def unused(z):\n    return z\n\ndef check(a, b):\n    total = a + b\n    return total == 4\n"
+        rep = audit_dual_checkers(spec, impl)
+        self.assertEqual(rep["verdict"], "FAIL")
+        self.assertFalse(rep["distinct_alpha_skeleton"])
+
+    def test_dual_large_uncalled_helper_cannot_evade(self) -> None:
+        spec = "def check(a, b):\n    total = a + b\n    return total == 4\n"
+        impl = (
+            "def bloated_uncalled(z, w, q, r):\n"
+            "    s = z + w\n"
+            "    t = s + q\n"
+            "    u = t + r\n"
+            "    v = u + z\n"
+            "    w2 = v + w\n"
+            "    return w2\n"
+            "def check(a, b):\n"
+            "    total = a + b\n"
+            "    return total == 4\n"
+        )
+        rep = audit_dual_checkers(spec, impl)
+        self.assertEqual(rep["verdict"], "FAIL")
+        self.assertFalse(rep["distinct_alpha_skeleton"])
+
     # --- Skeleton must distinguish kw-only and decorators ---
 
     def test_skeleton_distinguishes_kwonly_args(self) -> None:

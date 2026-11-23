@@ -75,24 +75,97 @@ def _is_pathlike_div(binop: ast.BinOp) -> bool:
     return _is_path_lhs(binop.left)
 
 
-def _build_parent_map(tree: ast.AST) -> Dict[ast.AST, ast.AST]:
-    parents: Dict[ast.AST, ast.AST] = {}
-    for parent in ast.walk(tree):
-        for child in ast.iter_child_nodes(parent):
-            parents[child] = parent
-    return parents
+CHECKER_ENTRY_NAMES: Set[str] = {
+    "check", "verify", "validate", "run", "audit", "main", "test_checker",
+}
+
+
+def _is_trivial_uncalled_helper(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    body = list(func.body)
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        if isinstance(body[0].value.value, str):
+            body = body[1:]
+    if len(body) != 1 or not isinstance(body[0], ast.Return) or body[0].value is None:
+        return False
+    ret = body[0].value
+    if isinstance(ret, ast.Constant):
+        return True
+    if isinstance(ret, ast.Name):
+        arg_names = [a.arg for a in func.args.posonlyargs + func.args.args]
+        if len(arg_names) == 1 and ret.id == arg_names[0]:
+            return True
+    return False
+
+
+def _checker_entry_score(func: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    score = 0
+    if func.name in CHECKER_ENTRY_NAMES or func.name.startswith("check"):
+        score += 1000
+    score += len(func.args.posonlyargs + func.args.args) * 10
+    if func.args.kwonlyargs:
+        score += 5
+    for sub in ast.walk(func):
+        if isinstance(sub, ast.Compare):
+            score += 50
+        if isinstance(sub, ast.For) or isinstance(sub, ast.While):
+            score += 20
+    score += sum(1 for _ in ast.walk(func))
+    return score
+
+
+def _prune_uncalled_module_functions(tree: ast.Module) -> ast.Module:
+    """Drop uncalled top-level helpers before alpha-renaming (uses raw identifiers).
+
+    Heuristic when several uncalled functions remain after removing trivial pads
+    (identity ``return z``, ``return 0``, etc.): keep the entry with the highest
+    ``_checker_entry_score``. This is not proof of which function is the checker;
+    it prevents a larger dead helper from splitting the skeleton hash.
+    """
+    body = list(tree.body)
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        if isinstance(body[0].value.value, str):
+            body = body[1:]
+    funcs = [s for s in body if isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    if len(funcs) <= 1:
+        return tree
+    names = {f.name for f in funcs}
+    called: Set[str] = set()
+    for f in funcs:
+        for sub in ast.walk(f):
+            if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name):
+                if sub.func.id in names:
+                    called.add(sub.func.id)
+    uncalled = [f for f in funcs if f.name not in called]
+    called_funcs = [f for f in funcs if f.name in called]
+    kept_uncalled: List[ast.FunctionDef | ast.AsyncFunctionDef] = []
+    for f in uncalled:
+        if not _is_trivial_uncalled_helper(f):
+            kept_uncalled.append(f)
+    if not kept_uncalled:
+        kept_uncalled = list(uncalled)
+    elif len(kept_uncalled) > 1:
+        best = max(kept_uncalled, key=_checker_entry_score)
+        kept_uncalled = [best]
+    kept_names = {f.name for f in called_funcs + kept_uncalled}
+    new_body = [
+        s
+        for s in body
+        if not isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef)) or s.name in kept_names
+    ]
+    return ast.Module(body=new_body, type_ignores=tree.type_ignores)
 
 
 def alpha_skeleton_sha256(source: str, preserved_api: Set[str] | None = None) -> str:
     """SHA-256 of an alpha-normalized AST (local renames, commutative ops, dead code pruning).
 
     What this **can** detect: copy-paste checkers after local renames, leading ``pass``,
-    commutative ``+`` / ``==``, single-use temp hoisting, and uncalled helper defs stripped.
+    commutative ``+`` / ``==``, single-use temp hoisting, and uncalled helper defs stripped
+    (pruned on raw AST before local renames so dead code cannot shift v0/v1 ids).
 
     What this **cannot** detect: genuinely different algorithms with similar structure,
     semantic equivalence under non-commutative edits, or true dual-checker independence.
     """
-    tree = ast.parse(source)
+    tree = _prune_uncalled_module_functions(ast.parse(source))
     keep = PRESERVED_NAMES | (preserved_api or set())
     id_map: Dict[str, str] = {}
 
@@ -110,26 +183,7 @@ def alpha_skeleton_sha256(source: str, preserved_api: Set[str] | None = None) ->
                 if isinstance(body[0].value.value, str):
                     body = body[1:]
             body = [self.visit(s) for s in body]
-            body = self._prune_uncalled_functions(body)
             return ast.Module(body=body, type_ignores=[])
-
-        def _prune_uncalled_functions(self, body: List[ast.stmt]) -> List[ast.stmt]:
-            funcs = [s for s in body if isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef))]
-            if len(funcs) <= 1:
-                return body
-            names = {f.name for f in funcs}
-            called: Set[str] = set()
-            for f in funcs:
-                for sub in ast.walk(f):
-                    if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name):
-                        if sub.func.id in names:
-                            called.add(sub.func.id)
-            # Keep called functions and the largest (likely main checker); drop dead helpers.
-            ranked = sorted(funcs, key=lambda f: len(ast.dump(f)), reverse=True)
-            kept_names = set(called)
-            if ranked:
-                kept_names.add(ranked[0].name)
-            return [s for s in body if not isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef)) or s.name in kept_names]
 
         def _strip_function_body_noise(self, body: List[ast.stmt]) -> List[ast.stmt]:
             out: List[ast.stmt] = []
