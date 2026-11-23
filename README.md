@@ -126,8 +126,10 @@ only unless the project later adopts this tool in workflow).
 
 It checks single files or pairs for:
 
-- **Exact-arithmetic hazards**: float literals, true division (excluding typical `pathlib.Path / "segment"`
-  joins), `float()`, negative exponents, `math.sqrt`, and related patterns.
+- **Exact-arithmetic hazards**: float literals, true division (excluding `pathlib` / `PurePath` joins such as
+  `Path(x) / name` or `PurePath('a') / 'b'`), `Fraction(a) / Fraction(b)` allowed, `Decimal` division flagged,
+  `float()`, non-literal `**` exponents, and most `math` calls. Allowed `math` int-only attrs:
+  `isqrt`, `gcd`, `lcm`, `comb`, `perm`, `factorial`. Any `numpy` / `np` use is flagged.
 - **Fail-open flags (F-01)**: locals initialized to `True` (or `not False`), returned after guards, with no
   fail-closed assignment to `False` on failure paths (structural rule, not name-dependent).
 - **Certificate hygiene**: vacuous `assert True` / `return True`, bare `assert` (stripped under `python -O`),
@@ -138,14 +140,16 @@ It checks single files or pairs for:
 ```sh
 python3 scripts/audit_python_checkers.py --single path/to/checker.py
 python3 scripts/audit_python_checkers.py --dual spec.py impl.py
-python3 scripts/audit_python_checkers.py spec.py --independent impl.py  # legacy alias
+python3 scripts/audit_python_checkers.py spec.py impl.py
 ```
 
 Flags: `--allow-floats`, `--json` / `--no-json`.
 
-**Dual mode** returns `PASS` only when both files are clean and their alpha-normalized skeleton hashes differ.
-That hash is a cheap copy-paste / rename lint (commutative `+`/`==`, pruned dead helpers, and similar cosmetics).
-It does **not** prove algorithmic independence; distinct implementations or differential testing are still required.
+**Dual mode** returns verdict `DISTINCT_LINT_CLEAN` only when both files are lint-clean and their
+alpha-normalized skeleton hashes differ (including resolved local-module import fingerprints).
+That hash is a cheap copy-paste / rename lint (commutative `+`/`==`, pruned dead helpers, inlined no-op
+helpers, sorted independent assigns, and similar cosmetics). It does **not** prove algorithmic independence;
+distinct implementations or differential testing are still required.
 
 ## How to contribute
 

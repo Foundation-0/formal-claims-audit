@@ -1,11 +1,14 @@
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from audit_python_checkers import (  # noqa: E402
+    VERDICT_DISTINCT_LINT_CLEAN,
+    VERDICT_FAIL,
     alpha_skeleton_sha256,
     audit_checker_source,
     audit_dual_checkers,
@@ -30,7 +33,7 @@ class AuditPythonCheckersTests(unittest.TestCase):
             "    return bin(mask).count('1') == 3\n"
         )
         rep = audit_dual_checkers(spec, impl)
-        self.assertEqual(rep["verdict"], "PASS")
+        self.assertEqual(rep["verdict"], VERDICT_DISTINCT_LINT_CLEAN)
         self.assertTrue(rep["distinct_alpha_skeleton"])
 
     def test_catches_optimistic_true_default_f01_and_floats(self) -> None:
@@ -54,7 +57,7 @@ class AuditPythonCheckersTests(unittest.TestCase):
         spec = "def check(state, step):\n    return state + step == 4\n"
         impl = "def verify(x, mv):\n    pass\n    return x + mv == 4\n"
         rep = audit_dual_checkers(spec, impl)
-        self.assertEqual(rep["verdict"], "FAIL")
+        self.assertEqual(rep["verdict"], VERDICT_FAIL)
         self.assertFalse(rep["distinct_alpha_skeleton"])
 
     def test_dual_evasion_commuted_add(self) -> None:
@@ -85,14 +88,14 @@ class AuditPythonCheckersTests(unittest.TestCase):
         spec = "def check(x, mv):\n    return x + mv == 4\n"
         impl = "def check(x, mv):\n    return x + mv == 4\n\ndef _pad():\n    return 0\n"
         rep = audit_dual_checkers(spec, impl)
-        self.assertEqual(rep["verdict"], "FAIL")
+        self.assertEqual(rep["verdict"], VERDICT_FAIL)
         self.assertFalse(rep["distinct_alpha_skeleton"])
 
     def test_dual_leading_unused_identity_helper_same_skeleton(self) -> None:
         spec = "def check(a, b):\n    total = a + b\n    return total == 4\n"
         impl = "def unused(z):\n    return z\n\ndef check(a, b):\n    total = a + b\n    return total == 4\n"
         rep = audit_dual_checkers(spec, impl)
-        self.assertEqual(rep["verdict"], "FAIL")
+        self.assertEqual(rep["verdict"], VERDICT_FAIL)
         self.assertFalse(rep["distinct_alpha_skeleton"])
 
     def test_dual_large_uncalled_helper_cannot_evade(self) -> None:
@@ -110,7 +113,7 @@ class AuditPythonCheckersTests(unittest.TestCase):
             "    return total == 4\n"
         )
         rep = audit_dual_checkers(spec, impl)
-        self.assertEqual(rep["verdict"], "FAIL")
+        self.assertEqual(rep["verdict"], VERDICT_FAIL)
         self.assertFalse(rep["distinct_alpha_skeleton"])
 
     # --- Skeleton must distinguish kw-only and decorators ---
@@ -286,7 +289,125 @@ class AuditPythonCheckersTests(unittest.TestCase):
         rules = {f["rule"] for f in rep["findings"]}
         self.assertIn("FLOAT_CALL_IN_EXACT_CHECKER", rules)
         self.assertIn("FLOAT_NEGATIVE_EXPONENT", rules)
-        self.assertIn("FLOAT_SQRT_IN_EXACT_CHECKER", rules)
+        self.assertIn("FLOAT_MATH_CALL_IN_EXACT_CHECKER", rules)
+
+    # --- Round 3 review controls ---
+
+    def test_dual_called_identity_helper_same_skeleton(self) -> None:
+        spec = "def check(s, d):\n    return s + d == 4\n"
+        impl = (
+            "def _t(m):\n"
+            "    return m\n"
+            "def check(s, d):\n"
+            "    return _t(s) + _t(d) == 4\n"
+        )
+        rep = audit_dual_checkers(spec, impl)
+        self.assertEqual(rep["verdict"], VERDICT_FAIL)
+        self.assertFalse(rep["distinct_alpha_skeleton"])
+
+    def test_dual_shared_local_module_import_fails(self) -> None:
+        core = "def core(s, d):\n    return s + d == 4\n"
+        spec_src = "from checker_core import core\n\ndef check(s, d):\n    return core(s, d)\n"
+        impl_src = "import checker_core as cc\n\ndef check(s, d):\n    return cc.core(s, d)\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "checker_core.py").write_text(core, encoding="utf-8")
+            (root / "spec.py").write_text(spec_src, encoding="utf-8")
+            (root / "impl.py").write_text(impl_src, encoding="utf-8")
+            rep = audit_dual_checkers(
+                spec_src,
+                impl_src,
+                spec_path=root / "spec.py",
+                impl_path=root / "impl.py",
+            )
+            self.assertEqual(rep["verdict"], VERDICT_FAIL)
+            self.assertFalse(rep["distinct_alpha_skeleton"])
+
+    def test_dual_reordered_dead_assignments_same_skeleton(self) -> None:
+        spec = "def check(a, b):\n    x = 1\n    y = 2\n    return a + b + x + y == 6\n"
+        impl = "def check(a, b):\n    y = 2\n    x = 1\n    return a + b + x + y == 6\n"
+        rep = audit_dual_checkers(spec, impl)
+        self.assertEqual(rep["verdict"], VERDICT_FAIL)
+        self.assertFalse(rep["distinct_alpha_skeleton"])
+
+    def test_math_log_and_exp_flagged(self) -> None:
+        src = (
+            "import math\n"
+            "def check(a, b):\n"
+            "    return math.log(a) + math.exp(b)\n"
+        )
+        rep = audit_checker_source(src)
+        rules = {f["rule"] for f in rep["findings"]}
+        self.assertIn("FLOAT_MATH_CALL_IN_EXACT_CHECKER", rules)
+
+    def test_fraction_division_allowed_decimal_flagged(self) -> None:
+        frac = (
+            "from fractions import Fraction\n"
+            "def check(a, b):\n"
+            "    return Fraction(a) / Fraction(b)\n"
+        )
+        rep_frac = audit_checker_source(frac)
+        self.assertNotIn(
+            "FLOAT_DIVISION_IN_EXACT_CHECKER",
+            {f["rule"] for f in rep_frac["findings"]},
+        )
+        dec = (
+            "from decimal import Decimal\n"
+            "def check(a, b):\n"
+            "    return Decimal(a) / Decimal(b)\n"
+        )
+        rep_dec = audit_checker_source(dec)
+        self.assertIn(
+            "FLOAT_DIVISION_IN_EXACT_CHECKER",
+            {f["rule"] for f in rep_dec["findings"]},
+        )
+
+    def test_purepath_and_path_join_variants_clean(self) -> None:
+        src = (
+            "from pathlib import Path, PurePath, PurePosixPath\n"
+            "def check(name, x, y):\n"
+            "    a = PurePath('a') / 'b'\n"
+            "    b = PurePosixPath('x') / name\n"
+            "    c = Path(x) / Path(y)\n"
+            "    d = Path('root') / name\n"
+            "    return len([a, b, c, d]) == 4\n"
+        )
+        rep = audit_checker_source(src)
+        rules = {f["rule"] for f in rep["findings"]}
+        self.assertNotIn("FLOAT_DIVISION_IN_EXACT_CHECKER", rules)
+
+    def test_f01_try_except_pass_return_ok(self) -> None:
+        src = (
+            "def verify():\n"
+            "    ok = True\n"
+            "    try:\n"
+            "        run_check()\n"
+            "    except Exception:\n"
+            "        pass\n"
+            "    return ok\n"
+        )
+        rep = audit_checker_source(src)
+        rules = {f["rule"] for f in rep["findings"]}
+        self.assertIn("OPTIMISTIC_TRUE_DEFAULT_F01", rules)
+        self.assertIn("BARE_EXCEPT_SWALLOW", rules)
+
+    def test_int_int_true_division_explicit(self) -> None:
+        clean = "def check(a: int, b: int):\n    return a // b\n"
+        rep_ok = audit_checker_source(clean)
+        self.assertNotIn(
+            "FLOAT_DIVISION_IN_EXACT_CHECKER",
+            {f["rule"] for f in rep_ok["findings"]},
+        )
+        bad = "def check(a: int, b: int):\n    return a / b\n"
+        rep_bad = audit_checker_source(bad)
+        divs = [f for f in rep_bad["findings"] if f["rule"] == "FLOAT_DIVISION_IN_EXACT_CHECKER"]
+        self.assertEqual(len(divs), 1)
+
+    def test_non_literal_exponent_flagged(self) -> None:
+        src = "def check(x, e):\n    return x ** e\n"
+        rep = audit_checker_source(src)
+        rules = {f["rule"] for f in rep["findings"]}
+        self.assertIn("FLOAT_NON_LITERAL_EXPONENT", rules)
 
     def test_strings_and_comments_do_not_trigger_hazards(self) -> None:
         src = (

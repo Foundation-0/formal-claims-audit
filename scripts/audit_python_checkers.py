@@ -24,8 +24,22 @@ import argparse
 import ast
 import hashlib
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
+
+VERDICT_DISTINCT_LINT_CLEAN = "DISTINCT_LINT_CLEAN"
+VERDICT_FAIL = "FAIL"
+
+# math.* attributes allowed in exact checkers (documented in README).
+MATH_INT_ONLY_ATTRS: Set[str] = {
+    "isqrt", "gcd", "lcm", "comb", "perm", "factorial",
+}
+
+PATH_FACTORY_ATTRS: Set[str] = {
+    "Path", "PurePath", "PurePosixPath", "PureWindowsPath", "PosixPath", "WindowsPath",
+}
+PATH_MODULE_NAMES: Set[str] = {"pathlib", "posixpath", "ntpath"}
 
 PRESERVED_NAMES: Set[str] = {
     "abs", "all", "any", "bin", "bool", "chr", "dict", "divmod", "enumerate",
@@ -46,34 +60,205 @@ def _dump_key(node: ast.AST) -> str:
     return ast.dump(node, include_attributes=False)
 
 
-def _is_path_lhs(node: ast.AST) -> bool:
-    """True when *node* is likely a pathlib.Path used as the left operand of ``/``."""
-    if isinstance(node, ast.Call):
-        func = node.func
-        if isinstance(func, ast.Name) and func.id == "Path":
-            return True
-        if isinstance(func, ast.Attribute) and func.attr == "Path":
-            return True
-    if isinstance(node, ast.Name) and node.id in ("Path", "ROOT", "path"):
+def _is_path_factory_call(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    if isinstance(func, ast.Name) and func.id in PATH_FACTORY_ATTRS:
         return True
-    if isinstance(node, ast.Attribute) and node.attr in ("parent", "parents", "root"):
+    if isinstance(func, ast.Attribute) and func.attr in PATH_FACTORY_ATTRS:
         return True
-    # Trailing / operator chain: ROOT / "a" / "b"
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-        return _is_path_lhs(node.left) or _is_path_lhs(node.right)
     return False
 
 
+def _is_path_like_expr(node: ast.AST) -> bool:
+    if _is_path_factory_call(node):
+        return True
+    if isinstance(node, ast.Name) and node.id in PATH_FACTORY_ATTRS | {"Path", "ROOT", "path", "root"}:
+        return True
+    if isinstance(node, ast.Attribute) and node.attr in ("parent", "parents", "root"):
+        return True
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        return _is_pathlike_div(node)
+    return False
+
+
+def _is_path_lhs(node: ast.AST) -> bool:
+    return _is_path_like_expr(node)
+
+
 def _is_pathlike_div(binop: ast.BinOp) -> bool:
-    """Heuristic: pathlib joins use ``/`` with a string segment on the right."""
-    if isinstance(binop.right, ast.Constant) and isinstance(binop.right.value, str):
-        if _is_path_lhs(binop.left):
+    """Pathlib / PurePath joins: Path/PurePath(...) / segment (literal, name, or nested Path)."""
+    if isinstance(binop.left, ast.Name) and isinstance(binop.right, ast.Constant):
+        if isinstance(binop.right.value, str):
             return True
-        if isinstance(binop.left, ast.BinOp) and isinstance(binop.left.op, ast.Div):
-            return _is_pathlike_div(binop.left)
-        if isinstance(binop.left, ast.Name):
-            return True
-    return _is_path_lhs(binop.left)
+    if not _is_path_like_expr(binop.left):
+        return False
+    right = binop.right
+    if isinstance(right, ast.Constant) and isinstance(right.value, str):
+        return True
+    if isinstance(right, ast.Name):
+        return True
+    if _is_path_factory_call(right) or _is_path_like_expr(right):
+        return True
+    if isinstance(binop.left, ast.BinOp) and isinstance(binop.left.op, ast.Div):
+        return _is_pathlike_div(binop.left)
+    return False
+
+
+def _is_fraction_call(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    if isinstance(func, ast.Name) and func.id == "Fraction":
+        return True
+    if isinstance(func, ast.Attribute) and func.attr == "Fraction":
+        return True
+    return False
+
+
+def _is_decimal_expr(node: ast.AST) -> bool:
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "Decimal":
+        return True
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "Decimal":
+        return True
+    return False
+
+
+def _fraction_names_in_scope(stmts: List[ast.stmt]) -> Set[str]:
+    names: Set[str] = set()
+    for stmt in stmts:
+        if isinstance(stmt, ast.Assign):
+            for tgt in stmt.targets:
+                if isinstance(tgt, ast.Name) and _is_fraction_call(stmt.value):
+                    names.add(tgt.id)
+        elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+            if stmt.value is not None and _is_fraction_call(stmt.value):
+                names.add(stmt.target.id)
+    return names
+
+
+def _operand_is_exact_fraction(node: ast.AST, fraction_names: Set[str]) -> bool:
+    return _is_fraction_call(node) or (isinstance(node, ast.Name) and node.id in fraction_names)
+
+
+def _is_exact_fraction_div(binop: ast.BinOp, enclosing_stmts: List[ast.stmt]) -> bool:
+    names = _fraction_names_in_scope(enclosing_stmts)
+    return _operand_is_exact_fraction(binop.left, names) and _operand_is_exact_fraction(binop.right, names)
+
+
+def _function_enclosing_stmts(tree: ast.AST, target: ast.AST) -> List[ast.stmt]:
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for sub in ast.walk(node):
+                if sub is target:
+                    return list(node.body)
+    if isinstance(tree, ast.Module):
+        for sub in ast.walk(tree):
+            if sub is target:
+                return list(tree.body)
+    return []
+
+
+def _identity_helper_functions(tree: ast.Module) -> Set[str]:
+    return {
+        stmt.name
+        for stmt in tree.body
+        if isinstance(stmt, ast.FunctionDef) and _is_single_arg_identity_helper(stmt)
+    }
+
+
+def _is_single_arg_identity_helper(func: ast.FunctionDef) -> bool:
+    if func.name in CHECKER_ENTRY_NAMES or func.name.startswith("check") or func.decorator_list:
+        return False
+    args = func.args.posonlyargs + func.args.args
+    if len(args) != 1 or func.args.kwonlyargs or func.args.vararg or func.args.kwarg:
+        return False
+    body = list(func.body)
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        if isinstance(body[0].value.value, str):
+            body = body[1:]
+    if len(body) != 1 or not isinstance(body[0], ast.Return) or body[0].value is None:
+        return False
+    ret = body[0].value
+    return isinstance(ret, ast.Name) and ret.id == args[0].arg
+
+
+def _inline_identity_call_tree(tree: ast.Module) -> ast.Module:
+    helpers = _identity_helper_functions(tree)
+
+    class _Inliner(ast.NodeTransformer):
+        def visit_Call(self, node: ast.Call) -> Any:
+            self.generic_visit(node)
+            if isinstance(node.func, ast.Name) and node.func.id in helpers:
+                if len(node.args) == 1 and not node.keywords and node.args[0] is not None:
+                    return node.args[0]
+            return node
+
+    new_body = [_Inliner().visit(stmt) for stmt in tree.body]
+    return ast.Module(body=new_body, type_ignores=tree.type_ignores)
+
+
+def _resolve_local_module_paths(tree: ast.AST, base_dir: Path) -> List[Path]:
+    """Resolve relative-to-checker imports to .py files (no stdlib / site-packages)."""
+    resolved: List[Path] = []
+    if not base_dir.is_dir():
+        return resolved
+
+    def add_file(path: Path) -> None:
+        if path.is_file() and path.suffix == ".py":
+            try:
+                path.resolve().relative_to(base_dir.resolve())
+            except ValueError:
+                return
+            if path not in resolved:
+                resolved.append(path)
+
+    for node in tree.body if isinstance(tree, ast.Module) else []:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top = alias.name.split(".", 1)[0]
+                if top in sys.stdlib_module_names:
+                    continue
+                add_file(base_dir / f"{alias.name.replace('.', '/')}.py")
+                init = base_dir / alias.name.replace(".", "/") / "__init__.py"
+                add_file(init)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and node.level == 0:
+                if node.module.split(".", 1)[0] in sys.stdlib_module_names:
+                    continue
+                add_file(base_dir / f"{node.module.replace('.', '/')}.py")
+                add_file(base_dir / node.module.replace(".", "/") / "__init__.py")
+            elif node.level:
+                rel = ("." * node.level) + (node.module or "")
+                # level 1: same directory as checker
+                parts = list(base_dir.parts)
+                for _ in range(node.level - 1):
+                    parts.pop()
+                parent = Path(*parts) if parts else base_dir
+                if node.module:
+                    add_file(parent / f"{node.module.replace('.', '/')}.py")
+    return resolved
+
+
+def _local_import_fingerprint(source: str, source_path: Optional[Path]) -> str:
+    if source_path is None:
+        return ""
+    tree = ast.parse(source, filename=str(source_path))
+    base = source_path.resolve().parent
+    paths = _resolve_local_module_paths(tree, base)
+    if not paths:
+        return ""
+    chunks: List[str] = []
+    for p in sorted(paths, key=lambda x: str(x)):
+        try:
+            mod_src = p.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        chunks.append(
+            f"{p.name}:{alpha_skeleton_sha256(mod_src, source_path=p, include_imports=False)}"
+        )
+    return "|".join(chunks)
 
 
 CHECKER_ENTRY_NAMES: Set[str] = {
@@ -156,7 +341,13 @@ def _prune_uncalled_module_functions(tree: ast.Module) -> ast.Module:
     return ast.Module(body=new_body, type_ignores=tree.type_ignores)
 
 
-def alpha_skeleton_sha256(source: str, preserved_api: Set[str] | None = None) -> str:
+def alpha_skeleton_sha256(
+    source: str,
+    preserved_api: Set[str] | None = None,
+    source_path: Optional[Path] = None,
+    *,
+    include_imports: bool = True,
+) -> str:
     """SHA-256 of an alpha-normalized AST (local renames, commutative ops, dead code pruning).
 
     What this **can** detect: copy-paste checkers after local renames, leading ``pass``,
@@ -166,7 +357,17 @@ def alpha_skeleton_sha256(source: str, preserved_api: Set[str] | None = None) ->
     What this **cannot** detect: genuinely different algorithms with similar structure,
     semantic equivalence under non-commutative edits, or true dual-checker independence.
     """
-    tree = _prune_uncalled_module_functions(ast.parse(source))
+    tree = _prune_uncalled_module_functions(ast.parse(source, filename=str(source_path or "<checker>")))
+    identity_helpers = _identity_helper_functions(tree)
+    tree = _inline_identity_call_tree(tree)
+    tree = ast.Module(
+        body=[
+            s
+            for s in tree.body
+            if not (isinstance(s, ast.FunctionDef) and s.name in identity_helpers)
+        ],
+        type_ignores=tree.type_ignores,
+    )
     keep = PRESERVED_NAMES | (preserved_api or set())
     id_map: Dict[str, str] = {}
 
@@ -183,8 +384,17 @@ def alpha_skeleton_sha256(source: str, preserved_api: Set[str] | None = None) ->
             if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
                 if isinstance(body[0].value.value, str):
                     body = body[1:]
-            body = [self.visit(s) for s in body]
+            body = [self.visit(s) for s in body if s is not None]
             return ast.Module(body=body, type_ignores=[])
+
+        def _sort_leading_independent_assigns(self, body: List[ast.stmt]) -> List[ast.stmt]:
+            split = 0
+            while split < len(body) and isinstance(body[split], ast.Assign):
+                split += 1
+            if split > 1:
+                head = sorted(body[:split], key=lambda s: ast.dump(s, include_attributes=False))
+                return head + body[split:]
+            return body
 
         def _strip_function_body_noise(self, body: List[ast.stmt]) -> List[ast.stmt]:
             out: List[ast.stmt] = []
@@ -197,8 +407,15 @@ def alpha_skeleton_sha256(source: str, preserved_api: Set[str] | None = None) ->
                         if tgt.id == stmt.value.id:
                             continue
                 out.append(stmt)
+            out = self._sort_leading_independent_assigns(out)
             out = self._inline_single_use_temps(out)
             return out
+
+        def visit_Import(self, node: ast.Import) -> Any:
+            return None
+
+        def visit_ImportFrom(self, node: ast.ImportFrom) -> Any:
+            return None
 
         def _inline_single_use_temps(self, body: List[ast.stmt]) -> List[ast.stmt]:
             if len(body) < 2:
@@ -334,7 +551,12 @@ def alpha_skeleton_sha256(source: str, preserved_api: Set[str] | None = None) ->
     norm_tree = _AddCanonicalizer().visit(_AlphaNormalizer().visit(tree))
     ast.fix_missing_locations(norm_tree)
     dumped = ast.dump(norm_tree, include_attributes=False)
-    return hashlib.sha256(dumped.encode("utf-8")).hexdigest()
+    digest = dumped
+    if include_imports and source_path is not None:
+        imp = _local_import_fingerprint(source, source_path)
+        if imp:
+            digest = f"{dumped}\n#imports:{imp}"
+    return hashlib.sha256(digest.encode("utf-8")).hexdigest()
 
 
 def _expr_is_optimistic_true(expr: ast.expr) -> bool:
@@ -405,7 +627,7 @@ def _is_optimistic_true_init(
     if not rest:
         return False
     has_guard = any(
-        isinstance(s, (ast.If, ast.For, ast.While, ast.With))
+        isinstance(s, (ast.If, ast.For, ast.While, ast.With, ast.Try))
         for s in ast.walk(ast.Module(body=rest, type_ignores=[]))
     )
     if not has_guard:
@@ -442,19 +664,85 @@ def _collect_float_division_findings(tree: ast.AST) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-            if not _is_pathlike_div(node):
+            if _is_pathlike_div(node):
+                continue
+            if _is_decimal_expr(node.left) or _is_decimal_expr(node.right):
                 out.append({
                     "rule": "FLOAT_DIVISION_IN_EXACT_CHECKER",
                     "line": node.lineno,
-                    "detail": "True division '/' produces IEEE-754 float; use '//' or fractions.Fraction(num, den).",
+                    "detail": "Decimal division rounds; not exact for certificate checkers.",
                 })
+                continue
+            stmts = _function_enclosing_stmts(tree, node)
+            if _is_exact_fraction_div(node, stmts):
+                continue
+            out.append({
+                "rule": "FLOAT_DIVISION_IN_EXACT_CHECKER",
+                "line": node.lineno,
+                "detail": "True division '/' produces IEEE-754 float; use '//' or fractions.Fraction(num, den).",
+            })
         elif isinstance(node, ast.AugAssign) and isinstance(node.op, ast.Div):
-            if not _is_path_lhs(node.target):
+            if _is_path_lhs(node.target):
+                continue
+            out.append({
+                "rule": "FLOAT_DIVISION_IN_EXACT_CHECKER",
+                "line": node.lineno,
+                "detail": "Augmented true division '/=' produces float; use '//=' or int math.",
+            })
+    return out
+
+
+def _collect_math_numpy_findings(tree: ast.AST) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".", 1)[0]
+                if root == "numpy" or alias.name == "numpy":
+                    out.append({
+                        "rule": "NUMPY_IN_EXACT_CHECKER",
+                        "line": node.lineno,
+                        "detail": "numpy is float-oriented; avoid in exact certificate checkers.",
+                    })
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            root = node.module.split(".", 1)[0]
+            if root == "numpy":
                 out.append({
-                    "rule": "FLOAT_DIVISION_IN_EXACT_CHECKER",
+                    "rule": "NUMPY_IN_EXACT_CHECKER",
                     "line": node.lineno,
-                    "detail": "Augmented true division '/=' produces float; use '//=' or int math.",
+                    "detail": "numpy is float-oriented; avoid in exact certificate checkers.",
                 })
+            elif node.module == "math":
+                for alias in node.names:
+                    name = alias.name
+                    if name == "*":
+                        out.append({
+                            "rule": "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
+                            "line": node.lineno,
+                            "detail": "from math import * pulls in float routines; use int-only math attrs.",
+                        })
+                    elif name not in MATH_INT_ONLY_ATTRS:
+                        out.append({
+                            "rule": "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
+                            "line": node.lineno,
+                            "detail": f"math.{name} may produce floats; int-only allowlist applies.",
+                        })
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name):
+                mod = node.func.value.id
+                attr = node.func.attr
+                if mod == "math" and attr not in MATH_INT_ONLY_ATTRS:
+                    out.append({
+                        "rule": "FLOAT_MATH_CALL_IN_EXACT_CHECKER",
+                        "line": node.lineno,
+                        "detail": f"math.{attr} may produce floats; int-only allowlist applies.",
+                    })
+                if mod in ("np", "numpy"):
+                    out.append({
+                        "rule": "NUMPY_IN_EXACT_CHECKER",
+                        "line": node.lineno,
+                        "detail": "numpy call in exact checker.",
+                    })
     return out
 
 
@@ -464,6 +752,7 @@ def audit_checker_source(source: str, label: str = "<checker>", strict_exact_mat
 
     if strict_exact_math:
         findings.extend(_collect_float_division_findings(tree))
+        findings.extend(_collect_math_numpy_findings(tree))
 
     for node in ast.walk(tree):
         if strict_exact_math:
@@ -480,18 +769,18 @@ def audit_checker_source(source: str, label: str = "<checker>", strict_exact_mat
                         "line": node.lineno,
                         "detail": "float() coercion risks IEEE-754 drift in an exact checker.",
                     })
-                if isinstance(node.func, ast.Attribute) and node.func.attr == "sqrt":
-                    findings.append({
-                        "rule": "FLOAT_SQRT_IN_EXACT_CHECKER",
-                        "line": node.lineno,
-                        "detail": "math.sqrt (or similar) yields float; use exact integer methods.",
-                    })
             elif isinstance(node, ast.BinOp) and type(node.op) is ast.Pow:
                 if isinstance(node.right, ast.UnaryOp) and isinstance(node.right.op, ast.USub):
                     findings.append({
                         "rule": "FLOAT_NEGATIVE_EXPONENT",
                         "line": node.lineno,
                         "detail": "Negative exponent often produces float (e.g. 2 ** -1); use exact rationals.",
+                    })
+                elif not isinstance(node.right, ast.Constant):
+                    findings.append({
+                        "rule": "FLOAT_NON_LITERAL_EXPONENT",
+                        "line": node.lineno,
+                        "detail": "Exponent is not a literal; ** may yield float in exact checkers.",
                     })
 
         if isinstance(node, (ast.Global, ast.Nonlocal)):
@@ -583,16 +872,33 @@ def audit_dual_checkers(
     impl_source: str,
     preserved_api: Set[str] | None = None,
     strict_exact_math: bool = True,
+    spec_path: Optional[Path] = None,
+    impl_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     s_rep = audit_checker_source(spec_source, label="spec", strict_exact_math=strict_exact_math)
     i_rep = audit_checker_source(impl_source, label="impl", strict_exact_math=strict_exact_math)
-    s_skel = alpha_skeleton_sha256(spec_source, preserved_api=preserved_api)
-    i_skel = alpha_skeleton_sha256(impl_source, preserved_api=preserved_api)
+    s_skel = alpha_skeleton_sha256(spec_source, preserved_api=preserved_api, source_path=spec_path)
+    i_skel = alpha_skeleton_sha256(impl_source, preserved_api=preserved_api, source_path=impl_path)
     distinct = s_skel != i_skel
-    verdict = "PASS" if (distinct and s_rep["clean"] and i_rep["clean"]) else "FAIL"
+    shared_local: List[str] = []
+    if spec_path is not None and impl_path is not None:
+        spec_tree = ast.parse(spec_source, filename=str(spec_path))
+        impl_tree = ast.parse(impl_source, filename=str(impl_path))
+        spec_locals = {
+            str(p.resolve()) for p in _resolve_local_module_paths(spec_tree, spec_path.resolve().parent)
+        }
+        impl_locals = {
+            str(p.resolve()) for p in _resolve_local_module_paths(impl_tree, impl_path.resolve().parent)
+        }
+        shared_local = sorted(spec_locals & impl_locals)
+        if shared_local:
+            distinct = False
+    clean = s_rep["clean"] and i_rep["clean"]
+    verdict = VERDICT_DISTINCT_LINT_CLEAN if (distinct and clean) else VERDICT_FAIL
     return {
         "verdict": verdict,
         "distinct_alpha_skeleton": distinct,
+        "shared_local_modules": shared_local,
         "spec_skeleton_sha256": s_skel,
         "impl_skeleton_sha256": i_skel,
         "spec_audit": s_rep,
@@ -619,7 +925,6 @@ def main() -> int:
         default=None,
         help="Audit two checkers for skeleton distinctness",
     )
-    ap.add_argument("--independent", type=Path, default=None, help="Legacy alias for second checker")
     ap.add_argument("--allow-floats", action="store_true", help="Disable strict exact-arithmetic float check")
     ap.add_argument(
         "--json",
@@ -636,24 +941,32 @@ def main() -> int:
         spec_path, impl_path = args.dual
         spec_src = spec_path.read_text(encoding="utf-8")
         impl_src = impl_path.read_text(encoding="utf-8")
-        res = audit_dual_checkers(spec_src, impl_src, strict_exact_math=strict)
+        res = audit_dual_checkers(
+            spec_src, impl_src, strict_exact_math=strict, spec_path=spec_path, impl_path=impl_path,
+        )
         if args.json:
             print(json.dumps(res, indent=2))
-        return 0 if res["verdict"] == "PASS" else 1
+        return 0 if res["verdict"] == VERDICT_DISTINCT_LINT_CLEAN else 1
 
     single = args.single or args.spec
     if single is None:
         ap.error("Provide --single FILE, --dual SPEC IMPL, or a positional checker path.")
 
-    impl_path = args.impl or args.independent
+    impl_path = args.impl
     spec_src = single.read_text(encoding="utf-8")
 
     if impl_path is not None:
         impl_src = impl_path.read_text(encoding="utf-8")
-        res = audit_dual_checkers(spec_src, impl_src, strict_exact_math=strict)
+        res = audit_dual_checkers(
+            spec_src,
+            impl_src,
+            strict_exact_math=strict,
+            spec_path=single,
+            impl_path=impl_path,
+        )
         if args.json:
             print(json.dumps(res, indent=2))
-        return 0 if res["verdict"] == "PASS" else 1
+        return 0 if res["verdict"] == VERDICT_DISTINCT_LINT_CLEAN else 1
 
     res = audit_checker_source(spec_src, label=str(single), strict_exact_math=strict)
     if args.json:
