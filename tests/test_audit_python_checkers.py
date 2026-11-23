@@ -145,6 +145,25 @@ class AuditPythonCheckersTests(unittest.TestCase):
         self.assertEqual(len(divs), 1)
         self.assertEqual(divs[0]["line"], 2)
 
+    def test_float_division_path_join_and_numeric_single_line(self) -> None:
+        src = (
+            "from pathlib import Path\n"
+            "ROOT = Path(__file__).parent\n"
+            'x = ROOT / "scripts"\n'
+            "y = 3 / 2\n"
+        )
+        rep = audit_checker_source(src, label="paths.py")
+        divs = [f for f in rep["findings"] if f["rule"] == "FLOAT_DIVISION_IN_EXACT_CHECKER"]
+        self.assertEqual(len(divs), 1)
+        self.assertEqual(divs[0]["line"], 4)
+
+    def test_float_division_two_numeric_lines(self) -> None:
+        src = "def check():\n    a = 1 / 2\n    b = 3 / 4\n"
+        rep = audit_checker_source(src)
+        divs = [f for f in rep["findings"] if f["rule"] == "FLOAT_DIVISION_IN_EXACT_CHECKER"]
+        self.assertEqual(len(divs), 2)
+        self.assertEqual({f["line"] for f in divs}, {2, 3})
+
     def test_test_module_path_join_pattern_is_clean(self) -> None:
         """This test file's ROOT / 'scripts' pattern must not be flagged."""
         snippet = "from pathlib import Path\nROOT = Path('.')\nx = ROOT / 'scripts'\n"

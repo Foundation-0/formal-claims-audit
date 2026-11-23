@@ -294,12 +294,12 @@ def alpha_skeleton_sha256(source: str, preserved_api: Set[str] | None = None) ->
         def visit_BinOp(self, node: ast.BinOp) -> Any:
             left = self.visit(node.left)
             right = self.visit(node.right)
-            if isinstance(node.op, ast.Add):
+            if type(node.op) is ast.Add:
                 left, right = self._canon_add_operands(left, right)
             return ast.BinOp(left=left, op=node.op, right=right)
 
         def visit_Compare(self, node: ast.Compare) -> Any:
-            if len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq) and len(node.comparators) == 1:
+            if len(node.ops) == 1 and type(node.ops[0]) is ast.Eq and len(node.comparators) == 1:
                 left = self.visit(node.left)
                 right = self.visit(node.comparators[0])
                 lk, rk = _dump_key(left), _dump_key(right)
@@ -324,7 +324,7 @@ def alpha_skeleton_sha256(source: str, preserved_api: Set[str] | None = None) ->
     class _AddCanonicalizer(ast.NodeTransformer):
         def visit_BinOp(self, node: ast.BinOp) -> Any:
             node = self.generic_visit(node)
-            if isinstance(node.op, ast.Add):
+            if type(node.op) is ast.Add:
                 lk, rk = _dump_key(node.left), _dump_key(node.right)
                 if rk < lk:
                     return ast.BinOp(left=node.right, op=node.op, right=node.left)
@@ -425,10 +425,32 @@ def _handler_body_swallows(handler: ast.ExceptHandler) -> bool:
     return False
 
 
+def _collect_float_division_findings(tree: ast.AST) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            if not _is_pathlike_div(node):
+                out.append({
+                    "rule": "FLOAT_DIVISION_IN_EXACT_CHECKER",
+                    "line": node.lineno,
+                    "detail": "True division '/' produces IEEE-754 float; use '//' or fractions.Fraction(num, den).",
+                })
+        elif isinstance(node, ast.AugAssign) and isinstance(node.op, ast.Div):
+            if not _is_path_lhs(node.target):
+                out.append({
+                    "rule": "FLOAT_DIVISION_IN_EXACT_CHECKER",
+                    "line": node.lineno,
+                    "detail": "Augmented true division '/=' produces float; use '//=' or int math.",
+                })
+    return out
+
+
 def audit_checker_source(source: str, label: str = "<checker>", strict_exact_math: bool = True) -> Dict[str, Any]:
     tree = ast.parse(source, filename=label)
     findings: List[Dict[str, Any]] = []
-    parents = _build_parent_map(tree)
+
+    if strict_exact_math:
+        findings.extend(_collect_float_division_findings(tree))
 
     for node in ast.walk(tree):
         if strict_exact_math:
@@ -438,22 +460,6 @@ def audit_checker_source(source: str, label: str = "<checker>", strict_exact_mat
                     "line": getattr(node, "lineno", 0),
                     "detail": f"Floating-point literal {node.value!r} risks rounding drift; use int or fractions.Fraction.",
                 })
-            elif isinstance(node, ast.Div):
-                parent = parents.get(node)
-                if isinstance(parent, ast.BinOp) and parent.op is node:
-                    if not _is_pathlike_div(parent):
-                        findings.append({
-                            "rule": "FLOAT_DIVISION_IN_EXACT_CHECKER",
-                            "line": parent.lineno,
-                            "detail": "True division '/' produces IEEE-754 float; use '//' or fractions.Fraction(num, den).",
-                        })
-                elif isinstance(parent, ast.AugAssign) and isinstance(parent.op, ast.Div):
-                    if not _is_path_lhs(parent.target):
-                        findings.append({
-                            "rule": "FLOAT_DIVISION_IN_EXACT_CHECKER",
-                            "line": parent.lineno,
-                            "detail": "Augmented true division '/=' produces float; use '//=' or int math.",
-                        })
             elif isinstance(node, ast.Call):
                 if isinstance(node.func, ast.Name) and node.func.id == "float":
                     findings.append({
@@ -467,7 +473,7 @@ def audit_checker_source(source: str, label: str = "<checker>", strict_exact_mat
                         "line": node.lineno,
                         "detail": "math.sqrt (or similar) yields float; use exact integer methods.",
                     })
-            elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow):
+            elif isinstance(node, ast.BinOp) and type(node.op) is ast.Pow:
                 if isinstance(node.right, ast.UnaryOp) and isinstance(node.right.op, ast.USub):
                     findings.append({
                         "rule": "FLOAT_NEGATIVE_EXPONENT",
