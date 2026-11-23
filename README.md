@@ -112,7 +112,9 @@ nested objects, value types, filename-matching IDs, full commit hashes and the f
 It rejects malformed JSON and duplicate keys, and exits with status 1 if any file fails.
 To check a different directory, use `python3 scripts/check_verdicts.py path/to/verdicts`.
 With no argument, it always checks this repository's `verdicts/`, regardless of the working directory.
-An empty verdict directory passes with an explicit count of zero; the test fixtures are fictional examples,
+An empty verdict directory fails: the checker exits with status 1 and prints
+`FAIL: no verdict files (*.json) found in` the directory (see `scripts/check_verdicts.py`).
+The test fixtures are fictional examples,
 not research results. GitHub Actions runs both commands on every push and pull request.
 
 These are structural checks only. They do not run Lean, verify sources or links, compare mathematical

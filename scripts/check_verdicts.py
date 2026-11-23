@@ -103,6 +103,14 @@ def main(argv=None):
         print(f"{directory}: cannot read verdict directory: {error}", file=sys.stderr)
         return 1
 
+    # An empty audit is not a passing audit: with no verdict files there is
+    # nothing to check, so exit non-zero instead of printing OK for zero.
+    # This check is an explicit comparison, not a bare assert, so it holds
+    # under python -O as well as in a normal run.
+    if not paths:
+        print(f"FAIL: no verdict files (*.json) found in {directory}.", file=sys.stderr)
+        return 1
+
     invalid = 0
     for path in paths:
         errors = validate_file(path)
