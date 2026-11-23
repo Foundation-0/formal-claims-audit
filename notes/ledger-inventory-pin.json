@@ -3,7 +3,7 @@
   "commit": "189893ba97c2c76de79922b0d7de88a5208e5ec3",
   "path": "docs/data/ledger.json",
   "sha256": "99b3614adc17f02d8045d40d5eaf9dbed55f26cdd09e5f0081c058249ca77864",
-  "hash_scope": "locally normalized JSON snapshot, not source bytes",
+  "hash_scope": "sha256 over UTF-8 bytes of json.dumps(obj, indent=2) with no trailing newline, where obj is the JSON value parsed from path at commit (default key order, ensure_ascii=True); not raw source-file bytes",
   "entry_ids": [
     "four-colour-theorem-computer-proof",
     "flyspeck-kepler-conjecture-formal-proof",
