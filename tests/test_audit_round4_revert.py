@@ -7,8 +7,12 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_REVERT = Path("/opt/cursor/artifacts/audit_79cfa484.py")
-REVERT_PATH = Path(os.environ.get("AUDIT_REVERT_REF", DEFAULT_REVERT))
+REVERT_PATH = Path(
+    os.environ.get(
+        "AUDIT_REVERT_REF",
+        "/opt/cursor/artifacts/audit_79cfa484.py",
+    ),
+)
 
 
 def _load_apc():

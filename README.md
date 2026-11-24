@@ -130,7 +130,9 @@ It checks single files or pairs for:
   `Path(x) / name` or `PurePath('a') / 'b'`), `Fraction(a) / Fraction(b)` allowed (including `Fraction as F`
   aliases), `Decimal` division flagged, `float()`, `pow()` / `**` with negative or non-literal exponents, and
   calls through `math`, `cmath`, `statistics`, and `numpy` (including `import math as m` and `from x import f as g`
-  aliases). Allowed `math` int-only attrs: `isqrt`, `gcd`, `lcm`, `comb`, `perm`, `factorial`.
+  aliases), plus `getattr(math, ...)`, `operator.truediv` / `itruediv`, `x.__truediv__(...)`, non-integer `**`
+  exponents (e.g. `** 0.5`), `divmod`, and `round`. Allowed `math` int-only attrs: `isqrt`, `gcd`, `lcm`, `comb`,
+  `perm`, `factorial`. `F = Fraction` and `fr.Fraction(...)` division stays allowed.
 - **Fail-open flags (F-01)**: locals initialized to `True` (or `not False`), returned after guards, with no
   fail-closed assignment to `False` on failure paths (structural rule, not name-dependent).
 - **Certificate hygiene**: vacuous `assert True` / `return True`, bare `assert` (stripped under `python -O`),
@@ -157,14 +159,19 @@ Skeleton normalizations (copy/rename lint only — any other semantics-preservin
 - Prune uncalled top-level helpers (keep one scoring heuristic when several remain).
 - Inline module-level helpers and lambdas that only return one parameter; drop their defs.
 - Remove unread function-local assignments; fold `if True:` / `if False:` wrappers.
-- Fold `*1`, `+0`, `-0`, and `//1` in simple binops inside checker bodies.
-- Sort commutative `+` and `==` operands; alpha-rename locals (preserving checker entry names).
+- Fold `*1`, `+0`, `-0`, `//1`, and `+ 0*x`; drop redundant `and True` / `or False`.
+- Inline IIFE lambdas, walrus temps, `functools.partial` one-liners, class `@staticmethod` delegates,
+  extra defaulted parameters, identity decorators (recorded before dead-helper prune), and `*args[i]`
+  forwarding into a fixed arity skeleton.
+- Sort commutative `+` and `==` operands; flip compared operands for `<` / `>` with constants or each other.
+- Alpha-rename locals (preserving checker entry names).
 - Hoist single-use temps into a lone `return`; sort independent leading assigns.
 - Append a fingerprint of resolved non-stdlib local `.py` imports on the skeleton hash.
 
 This does **not** prove algorithmic independence; distinct implementations or differential testing are still
-required. Known single-file limit: `verified = True; return verified` with no guards is not flagged as F-01
-(structural rule requires a guard after an optimistic init).
+required. Known limits: rewriting between unrelated comparison shapes (e.g. `s+d==4` vs `4>s+d`); `verified = True`
+returned without guards is not flagged as F-01 (structural rule requires a guard after an optimistic init).
+Malformed sources return verdict `FAIL` with a `SYNTAX_ERROR` finding (JSON, no traceback).
 
 ## How to contribute
 

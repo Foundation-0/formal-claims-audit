@@ -515,5 +515,105 @@ class P16R3Round4Tests(unittest.TestCase):
         self.assertTrue(self._single("e6.py")["clean"])
 
 
+class P16R4Round5Tests(unittest.TestCase):
+    P16 = Path(__file__).resolve().parent / "fixtures" / "p16r4"
+
+    def _dual(self, left: str, right: str):
+        spec_path = self.P16 / left
+        impl_path = self.P16 / right
+        return audit_dual_checkers(
+            spec_path.read_text(encoding="utf-8"),
+            impl_path.read_text(encoding="utf-8"),
+            spec_path=spec_path,
+            impl_path=impl_path,
+        )
+
+    def _single(self, name: str):
+        path = self.P16 / name
+        return audit_checker_source(path.read_text(encoding="utf-8"), label=str(path))
+
+    def test_indep_positive_control_distinct(self) -> None:
+        rep = self._dual("base.py", "indep.py")
+        self.assertEqual(rep["verdict"], VERDICT_DISTINCT_LINT_CLEAN)
+        self.assertTrue(rep["distinct_alpha_skeleton"])
+
+    def test_dual_cosmetic_evations_fail(self) -> None:
+        for other in (
+            "n_andtrue.py",
+            "n_iife.py",
+            "n_zeromul.py",
+            "n_commute.py",
+            "n_alias.py",
+            "n_static.py",
+            "n_default.py",
+            "n_deco.py",
+            "n_star.py",
+            "n_walrus.py",
+            "n_partial.py",
+        ):
+            with self.subTest(other=other):
+                rep = self._dual("base.py", other)
+                self.assertEqual(rep["verdict"], VERDICT_FAIL, other)
+                self.assertFalse(rep["distinct_alpha_skeleton"], other)
+
+    def test_compare_direction_normalized(self) -> None:
+        a = "def check(s, d):\n    return s + d < 5\n"
+        b = "def check(s, d):\n    return 5 > s + d\n"
+        self.assertEqual(alpha_skeleton_sha256(a), alpha_skeleton_sha256(b))
+
+    def test_different_eq_shape_still_limit(self) -> None:
+        """``4 > s+d`` is not equated to ``s+d==4`` (documented dual limit)."""
+        rep = self._dual("base.py", "n_gt_limit.py")
+        self.assertEqual(rep["verdict"], VERDICT_DISTINCT_LINT_CLEAN)
+        self.assertTrue(rep["distinct_alpha_skeleton"])
+
+    def test_relative_import_shared_module_not_delegation_mismatch(self) -> None:
+        core = "def core(s, d):\n    return s + d == 4\n"
+        spec_src = "from .pkg import mod\n\ndef check(s, d):\n    return mod.core(s, d)\n"
+        impl_src = "from .pkg.mod import core\n\ndef check(s, d):\n    return core(s, d)\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "wrap_pkg"
+            root.mkdir(parents=True)
+            (root / "__init__.py").write_text("", encoding="utf-8")
+            (root / "pkg").mkdir()
+            (root / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+            (root / "pkg" / "mod.py").write_text(core, encoding="utf-8")
+            (root / "spec.py").write_text(spec_src, encoding="utf-8")
+            (root / "impl.py").write_text(impl_src, encoding="utf-8")
+            rep = audit_dual_checkers(
+                spec_src,
+                impl_src,
+                spec_path=root / "spec.py",
+                impl_path=root / "impl.py",
+            )
+            self.assertEqual(rep["verdict"], VERDICT_FAIL)
+            self.assertTrue(rep["shared_local_modules"])
+            rules = {f["rule"] for f in rep.get("dual_findings", [])}
+            self.assertNotIn("LOCAL_MODULE_DELEGATION_MISMATCH", rules)
+
+    def test_single_float_hazards_round5(self) -> None:
+        flagged = (
+            "s_truediv.py",
+            "s_optruediv.py",
+            "s_getattr.py",
+            "s_dunder.py",
+            "s_half.py",
+        )
+        for name in flagged:
+            with self.subTest(name=name):
+                self.assertFalse(self._single(name)["clean"], name)
+
+    def test_fraction_local_and_module_alias_clean(self) -> None:
+        self.assertTrue(self._single("fp_localalias.py")["clean"])
+        self.assertTrue(self._single("fp_modalias.py")["clean"])
+
+    def test_syntax_error_json_fail(self) -> None:
+        rep = audit_checker_source("def check(\n", label="broken.py")
+        self.assertFalse(rep["clean"])
+        self.assertEqual(rep["verdict"], VERDICT_FAIL)
+        self.assertIn("SYNTAX_ERROR", {f["rule"] for f in rep["findings"]})
+        self.assertGreaterEqual(rep["findings"][0]["line"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
