@@ -328,6 +328,91 @@ def _drop_unread_assigns(body: List[ast.stmt]) -> List[ast.stmt]:
     return out
 
 
+class _ConstantIntFolder(ast.NodeTransformer):
+    def visit_BinOp(self, node: ast.BinOp) -> Any:
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+        if isinstance(left, ast.Constant) and isinstance(right, ast.Constant):
+            if isinstance(left.value, int) and isinstance(right.value, int):
+                if isinstance(node.op, ast.Add):
+                    return ast.Constant(value=left.value + right.value)
+                if isinstance(node.op, ast.Sub):
+                    return ast.Constant(value=left.value - right.value)
+                if isinstance(node.op, ast.Mult):
+                    return ast.Constant(value=left.value * right.value)
+        return ast.BinOp(left=left, op=node.op, right=right)
+
+
+class _BoolCallFolder(ast.NodeTransformer):
+    def visit_Call(self, node: ast.Call) -> Any:
+        node = self.generic_visit(node)
+        if (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "bool"
+            and len(node.args) == 1
+            and not node.keywords
+        ):
+            return node.args[0]
+        return node
+
+
+class _NotCompareFolder(ast.NodeTransformer):
+    _INVERT = {
+        ast.NotEq: ast.Eq,
+        ast.Eq: ast.NotEq,
+        ast.Lt: ast.GtE,
+        ast.Gt: ast.LtE,
+        ast.LtE: ast.Gt,
+        ast.GtE: ast.Lt,
+    }
+
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> Any:
+        node = self.generic_visit(node)
+        if not isinstance(node.op, ast.Not):
+            return node
+        operand = node.operand
+        if not isinstance(operand, ast.Compare) or len(operand.ops) != 1 or len(operand.comparators) != 1:
+            return node
+        op_t = type(operand.ops[0])
+        inv = self._INVERT.get(op_t)
+        if inv is None:
+            return node
+        return ast.Compare(
+            left=operand.left,
+            ops=[inv()],
+            comparators=operand.comparators,
+        )
+
+
+class _ZeroCompareFolder(ast.NodeTransformer):
+    def visit_Compare(self, node: ast.Compare) -> Any:
+        node = self.generic_visit(node)
+        if len(node.ops) != 1 or len(node.comparators) != 1:
+            return node
+        op, right = node.ops[0], node.comparators[0]
+        if not isinstance(op, ast.Eq):
+            return node
+        if isinstance(right, ast.Constant) and right.value == 0:
+            left = node.left
+            if isinstance(left, ast.BinOp) and isinstance(left.op, ast.Sub):
+                if isinstance(left.right, ast.Constant) and isinstance(left.right.value, int):
+                    return ast.Compare(
+                        left=left.left,
+                        ops=[ast.Eq()],
+                        comparators=[left.right],
+                    )
+            if isinstance(left, ast.BinOp) and isinstance(left.op, ast.Add):
+                if isinstance(left.right, ast.UnaryOp) and isinstance(left.right.op, ast.USub):
+                    if isinstance(left.right.operand, ast.Constant):
+                        c = left.right.operand.value
+                        return ast.Compare(
+                            left=left.left,
+                            ops=[ast.Eq()],
+                            comparators=[ast.Constant(value=c)],
+                        )
+        return node
+
+
 class _AlgebraicFolder(ast.NodeTransformer):
     def _zero_times(self, node: ast.AST) -> bool:
         return (
@@ -453,9 +538,13 @@ class _ExprSkeletonFolder(ast.NodeTransformer):
 
 
 def _fold_return_expr(expr: ast.expr) -> ast.expr:
-    return _BoolNoiseFolder().visit(
-        _ExprSkeletonFolder().visit(_AlgebraicFolder().visit(expr)),
-    )
+    expr = _ConstantIntFolder().visit(expr)
+    expr = _AlgebraicFolder().visit(expr)
+    expr = _NotCompareFolder().visit(expr)
+    expr = _ZeroCompareFolder().visit(expr)
+    expr = _ExprSkeletonFolder().visit(expr)
+    expr = _BoolCallFolder().visit(expr)
+    return _BoolNoiseFolder().visit(expr)
 
 
 def _fold_stmt_algebra(stmt: ast.stmt) -> ast.stmt:
@@ -471,14 +560,63 @@ def _fold_stmt_algebra(stmt: ast.stmt) -> ast.stmt:
     return _AlgebraicFolder().visit(stmt)
 
 
+def _fold_if_return_bool(body: List[ast.stmt]) -> List[ast.stmt]:
+    if len(body) < 2:
+        return body
+    if not isinstance(body[0], ast.If):
+        return body
+    if_stmt = body[0]
+    if len(if_stmt.body) != 1 or not isinstance(if_stmt.body[0], ast.Return):
+        return body
+    if if_stmt.orelse:
+        return body
+    tail = body[1:]
+    if len(tail) != 1 or not isinstance(tail[0], ast.Return):
+        return body
+    t_val = if_stmt.body[0].value
+    f_val = tail[0].value
+    if isinstance(t_val, ast.Constant) and isinstance(f_val, ast.Constant):
+        if t_val.value is True and f_val.value is False:
+            return [ast.Return(value=if_stmt.test)]
+        if t_val.value is False and f_val.value is True:
+            return [ast.Return(value=ast.UnaryOp(op=ast.Not(), operand=if_stmt.test))]
+    return body
+
+
 def _preprocess_function_body(body: List[ast.stmt]) -> List[ast.stmt]:
     body = _fold_constant_ifs(body)
     body = _drop_unread_assigns(body)
+    body = _fold_if_return_bool(body)
     return [_fold_stmt_algebra(s) for s in body]
 
 
 def _is_checker_entry(name: str) -> bool:
     return name in CHECKER_ENTRY_NAMES or name.startswith("check")
+
+
+def _inner_forwards_call_to(inner: ast.FunctionDef, target: str) -> bool:
+    body = _strip_docstring_body(list(inner.body))
+    if len(body) != 1 or not isinstance(body[0], ast.Return) or body[0].value is None:
+        return False
+    call = body[0].value
+    if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name):
+        return False
+    if call.func.id != target:
+        return False
+    if inner.args.vararg and inner.args.kwarg:
+        if len(call.args) == 1 and isinstance(call.args[0], ast.Starred):
+            if call.args[0].value.id != inner.args.vararg.arg:
+                return False
+            if len(call.keywords) == 1:
+                kw = call.keywords[0]
+                if isinstance(kw.value, ast.Name) and kw.value.id == inner.args.kwarg.arg:
+                    return kw.arg is None or kw.arg == inner.args.kwarg.arg
+        return False
+    if not call.args and not call.keywords:
+        return True
+    if len(call.args) == len(inner.args.posonlyargs + inner.args.args):
+        return all(isinstance(a, ast.Name) for a in call.args)
+    return False
 
 
 def _identity_decorator_names(tree: ast.Module) -> Set[str]:
@@ -489,11 +627,18 @@ def _identity_decorator_names(tree: ast.Module) -> Set[str]:
         args = stmt.args.posonlyargs + stmt.args.args
         if len(args) != 1:
             continue
+        f_param = args[0].arg
         body = _strip_docstring_body(list(stmt.body))
-        if len(body) != 1 or not isinstance(body[0], ast.Return) or body[0].value is None:
-            continue
-        if isinstance(body[0].value, ast.Name) and body[0].value.id == args[0].arg:
-            names.add(stmt.name)
+        if len(body) == 1 and isinstance(body[0], ast.Return) and body[0].value is not None:
+            if isinstance(body[0].value, ast.Name) and body[0].value.id == f_param:
+                names.add(stmt.name)
+                continue
+        if len(body) == 2 and isinstance(body[0], ast.FunctionDef) and isinstance(body[1], ast.Return):
+            inner = body[0]
+            ret = body[1].value
+            if isinstance(ret, ast.Name) and ret.id == inner.name:
+                if _inner_forwards_call_to(inner, f_param):
+                    names.add(stmt.name)
     return names
 
 

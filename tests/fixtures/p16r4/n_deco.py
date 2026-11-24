@@ -1,6 +1,5 @@
-def ident(f):
+def deco(f):
     return f
-
-@ident
-def check(x, mv):
-    return x + mv == 4
+@deco
+def check(s, d):
+    return s + d == 4

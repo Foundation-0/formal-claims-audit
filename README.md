@@ -159,17 +159,20 @@ Skeleton normalizations (copy/rename lint only — any other semantics-preservin
 - Prune uncalled top-level helpers (keep one scoring heuristic when several remain).
 - Inline module-level helpers and lambdas that only return one parameter; drop their defs.
 - Remove unread function-local assignments; fold `if True:` / `if False:` wrappers.
-- Fold `*1`, `+0`, `-0`, `//1`, and `+ 0*x`; drop redundant `and True` / `or False`.
-- Inline IIFE lambdas, walrus temps, `functools.partial` one-liners, class `@staticmethod` delegates,
-  extra defaulted parameters, identity decorators (recorded before dead-helper prune), and `*args[i]`
-  forwarding into a fixed arity skeleton.
-- Sort commutative `+` and `==` operands; flip compared operands for `<` / `>` with constants or each other.
+- Fold `*1`, `+0`, `-0`, `//1`, and `+ 0*x`; fold integer constant arithmetic in comparisons;
+  drop redundant `and True` / `or False`; strip `bool(...)` around a comparison; fold `not` with `==` / `!=`
+  and ordered compares; rewrite `expr - c == 0` to `expr == c`.
+- Inline IIFE lambdas, walrus temps, `functools.partial` curries, class `@staticmethod` delegates,
+  extra defaulted parameters, identity and `functools.wraps` pass-through decorators (names captured before
+  dead-helper prune), and `*args[i]` forwarding into a fixed arity skeleton.
+- Fold `if cond: return True` / `return False` (and inverted) to `return cond`.
+- Sort commutative `+` and `==` operands; flip compared operands for `<` / `>` with a constant on one side.
 - Alpha-rename locals (preserving checker entry names).
 - Hoist single-use temps into a lone `return`; sort independent leading assigns.
 - Append a fingerprint of resolved non-stdlib local `.py` imports on the skeleton hash.
 
 This does **not** prove algorithmic independence; distinct implementations or differential testing are still
-required. Known limits: rewriting between unrelated comparison shapes (e.g. `s+d==4` vs `4>s+d`); `verified = True`
+required. Known limits: genuinely different predicates are not unified (e.g. `s+d==4` vs `4>s+d`); `verified = True`
 returned without guards is not flagged as F-01 (structural rule requires a guard after an optimistic init).
 Malformed sources return verdict `FAIL` with a `SYNTAX_ERROR` finding (JSON, no traceback).
 

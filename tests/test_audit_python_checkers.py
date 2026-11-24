@@ -533,7 +533,14 @@ class P16R4Round5Tests(unittest.TestCase):
         return audit_checker_source(path.read_text(encoding="utf-8"), label=str(path))
 
     def test_indep_positive_control_distinct(self) -> None:
-        rep = self._dual("base.py", "indep.py")
+        for other in ("indep.py", "indep2.py"):
+            with self.subTest(other=other):
+                rep = self._dual("base.py", other)
+                self.assertEqual(rep["verdict"], VERDICT_DISTINCT_LINT_CLEAN)
+                self.assertTrue(rep["distinct_alpha_skeleton"])
+
+    def test_other_pair_positive_control_distinct(self) -> None:
+        rep = self._dual("other1.py", "other2.py")
         self.assertEqual(rep["verdict"], VERDICT_DISTINCT_LINT_CLEAN)
         self.assertTrue(rep["distinct_alpha_skeleton"])
 
@@ -550,6 +557,12 @@ class P16R4Round5Tests(unittest.TestCase):
             "n_star.py",
             "n_walrus.py",
             "n_partial.py",
+            "n_wrapsdeco.py",
+            "n_bool.py",
+            "n_ifret.py",
+            "n_notne.py",
+            "n_const.py",
+            "n_sub.py",
         ):
             with self.subTest(other=other):
                 rep = self._dual("base.py", other)
@@ -561,8 +574,8 @@ class P16R4Round5Tests(unittest.TestCase):
         b = "def check(s, d):\n    return 5 > s + d\n"
         self.assertEqual(alpha_skeleton_sha256(a), alpha_skeleton_sha256(b))
 
-    def test_different_eq_shape_still_limit(self) -> None:
-        """``4 > s+d`` is not equated to ``s+d==4`` (documented dual limit)."""
+    def test_different_predicate_still_limit(self) -> None:
+        """Inequality vs equality (e.g. ``4 > s+d`` vs ``s+d==4``) is not unified (documented limit)."""
         rep = self._dual("base.py", "n_gt_limit.py")
         self.assertEqual(rep["verdict"], VERDICT_DISTINCT_LINT_CLEAN)
         self.assertTrue(rep["distinct_alpha_skeleton"])

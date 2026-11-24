@@ -1,2 +1,2 @@
-def check(x, mv, _k=0):
-    return x + mv == 4
+def check(s, d, _k=0):
+    return s + d == 4

@@ -1,7 +1,6 @@
-class C:
+class K:
     @staticmethod
-    def inner(x, mv):
-        return x + mv == 4
-
-def check(x, mv):
-    return C.inner(x, mv)
+    def f(s, d):
+        return s + d == 4
+def check(s, d):
+    return K.f(s, d)
