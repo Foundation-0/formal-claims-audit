@@ -118,6 +118,64 @@ not research results. GitHub Actions runs both commands on every push and pull r
 These are structural checks only. They do not run Lean, verify sources or links, compare mathematical
 statements, or establish that a person reviewed a verdict. A passing check does not change any result's status.
 
+### Python checker AST linter (optional)
+
+`scripts/audit_python_checkers.py` is an AST linter for Python certificate `verify.py`-style checkers. It is
+**not** a Lean soundness scanner and is **not** part of the CI job above (that remains verdict JSON + unittest
+only unless the project later adopts this tool in workflow).
+
+It checks single files or pairs for:
+
+- **Exact-arithmetic hazards**: float literals, true division (excluding `pathlib` / `PurePath` joins such as
+  `Path(x) / name` or `PurePath('a') / 'b'`), `Fraction(a) / Fraction(b)` allowed (including `Fraction as F`
+  aliases), `Decimal` division flagged, `float()`, `pow()` / `**` with negative or non-literal exponents, and
+  calls through `math`, `cmath`, `statistics`, and `numpy` (including `import math as m` and `from x import f as g`
+  aliases), plus `getattr(math, ...)`, `operator.truediv` / `itruediv`, `x.__truediv__(...)`, non-integer `**`
+  exponents (e.g. `** 0.5`), `divmod`, and `round`. Allowed `math` int-only attrs: `isqrt`, `gcd`, `lcm`, `comb`,
+  `perm`, `factorial`. `F = Fraction` and `fr.Fraction(...)` division stays allowed.
+- **Fail-open flags (F-01)**: locals initialized to `True` (or `not False`), returned after guards, with no
+  fail-closed assignment to `False` on failure paths (structural rule, not name-dependent).
+- **Certificate hygiene**: vacuous `assert True` / `return True`, bare `assert` (stripped under `python -O`),
+  broad `except ...: pass`, `eval`, and mutable `global` / `nonlocal` use.
+
+**CLI** (JSON on stdout by default):
+
+```sh
+python3 scripts/audit_python_checkers.py --single path/to/checker.py
+python3 scripts/audit_python_checkers.py --dual spec.py impl.py
+python3 scripts/audit_python_checkers.py spec.py impl.py
+```
+
+Flags: `--allow-floats`, `--json` / `--no-json`.
+
+**Dual mode** returns verdict `DISTINCT_LINT_CLEAN` only when both files are lint-clean, no dual-specific
+findings apply, and their alpha-normalized skeleton hashes differ. Dual mode also returns `FAIL` when either
+checker uses `importlib.import_module` / `__import__`, when one file delegates to a local module and the other
+inlines the same logic, or when both import the same resolved local module path (shared delegation).
+
+Skeleton normalizations (copy/rename lint only — any other semantics-preserving edit can still evade detection):
+
+- Drop leading module docstring and `pass` in checker bodies.
+- Prune uncalled top-level helpers (keep one scoring heuristic when several remain).
+- Inline module-level helpers and lambdas that only return one parameter; drop their defs.
+- Remove unread function-local assignments; fold `if True:` / `if False:` wrappers.
+- Fold `*1`, `+0`, `-0`, `//1`, and `+ 0*x`; fold integer constant arithmetic in comparisons;
+  drop redundant `and True` / `or False`; strip `bool(...)` around a comparison; fold `not` with `==` / `!=`
+  and ordered compares; rewrite `expr - c == 0` to `expr == c`.
+- Inline IIFE lambdas, walrus temps, `functools.partial` curries, class `@staticmethod` delegates,
+  extra defaulted parameters, identity and `functools.wraps` pass-through decorators (names captured before
+  dead-helper prune), and `*args[i]` forwarding into a fixed arity skeleton.
+- Fold `if cond: return True` / `return False` (and inverted) to `return cond`.
+- Sort commutative `+` and `==` operands; flip compared operands for `<` / `>` with a constant on one side.
+- Alpha-rename locals (preserving checker entry names).
+- Hoist single-use temps into a lone `return`; sort independent leading assigns.
+- Append a fingerprint of resolved non-stdlib local `.py` imports on the skeleton hash.
+
+This does **not** prove algorithmic independence; distinct implementations or differential testing are still
+required. Known limits: genuinely different predicates are not unified (e.g. `s+d==4` vs `4>s+d`); `verified = True`
+returned without guards is not flagged as F-01 (structural rule requires a guard after an optimistic init).
+Malformed sources return verdict `FAIL` with a `SYNTAX_ERROR` finding (JSON, no traceback).
+
 ## How to contribute
 
 The lead is to be named, and a person signs for every result.
