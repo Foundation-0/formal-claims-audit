@@ -1,4 +1,4 @@
-"""Revert demos: round-5 p16r4 controls must fail against audit_python_checkers @ 704d308d."""
+"""Revert demos: round-5 controls must fail when the auditor is pinned to 704d308d."""
 from __future__ import annotations
 
 import importlib.util
@@ -6,8 +6,12 @@ import os
 import unittest
 from pathlib import Path
 
-DEFAULT_REVERT = Path("/opt/cursor/artifacts/audit_704d308d.py")
-REVERT_PATH = Path(os.environ.get("AUDIT_REVERT_REF", DEFAULT_REVERT))
+REVERT_PATH = Path(
+    os.environ.get(
+        "AUDIT_REVERT_REF",
+        "/opt/cursor/artifacts/audit_704d308d.py",
+    ),
+)
 
 
 def _load_apc():
@@ -47,16 +51,17 @@ class Round5RevertTests(unittest.TestCase):
         path = P16 / name
         return self.apc.audit_checker_source(path.read_text(encoding="utf-8"), label=str(path))
 
-    def test_dual_andtrue_still_evades_old(self) -> None:
+    def test_dual_andtrue_should_fail_on_old(self) -> None:
         rep = self._dual("base.py", "n_andtrue.py")
-        self.assertEqual(rep["verdict"], self.apc.VERDICT_DISTINCT_LINT_CLEAN)
+        self.assertEqual(rep["verdict"], self.VERDICT_FAIL)
+        self.assertFalse(rep["distinct_alpha_skeleton"])
 
-    def test_getattr_math_still_clean_old(self) -> None:
-        self.assertTrue(self._single("s_getattr.py")["clean"])
+    def test_getattr_math_flagged_on_new_old_misses(self) -> None:
+        rules = {f["rule"] for f in self._single("s_getattr.py")["findings"]}
+        self.assertIn("FLOAT_MATH_CALL_IN_EXACT_CHECKER", rules)
 
-    def test_fraction_local_alias_false_positive_old(self) -> None:
-        rules = {f["rule"] for f in self._single("fp_localalias.py")["findings"]}
-        self.assertIn("FLOAT_DIVISION_IN_EXACT_CHECKER", rules)
+    def test_fraction_local_alias_clean_on_new(self) -> None:
+        self.assertTrue(self._single("fp_localalias.py")["clean"])
 
 
 if __name__ == "__main__":
