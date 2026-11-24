@@ -5,13 +5,11 @@ import importlib.util
 import os
 import unittest
 from pathlib import Path
+from typing import Optional
 
-REVERT_PATH = Path(
-    os.environ.get(
-        "AUDIT_REVERT_REF",
-        "/opt/cursor/artifacts/audit_704d308d.py",
-    ),
-)
+REVERT_PATH: Optional[Path] = None
+if os.environ.get("AUDIT_REVERT_REF"):
+    REVERT_PATH = Path(os.environ["AUDIT_REVERT_REF"])
 
 
 def _load_apc():
@@ -29,8 +27,8 @@ P16 = Path(__file__).resolve().parent / "fixtures" / "p16r4"
 
 
 @unittest.skipUnless(
-    REVERT_PATH.is_file(),
-    "revert auditor snapshot missing (generate for REVERT-DEMOS only)",
+    REVERT_PATH is not None and REVERT_PATH.is_file(),
+    "set AUDIT_REVERT_REF to generate REVERT-DEMOS (skipped in discover)",
 )
 class Round5RevertTests(unittest.TestCase):
     def setUp(self) -> None:
